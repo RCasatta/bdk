@@ -22,9 +22,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use std::cmp;
-use std::collections::{HashSet, VecDeque};
-use std::convert::TryFrom;
+use std::collections::{HashMap, HashSet};
 
 #[allow(unused_imports)]
 use log::{debug, error, info, trace};
@@ -36,6 +34,11 @@ use crate::database::{BatchDatabase, BatchOperations, DatabaseUtils};
 use crate::error::Error;
 use crate::types::{ScriptType, TransactionDetails, UTXO};
 use crate::wallet::utils::ChunksIterator;
+use electrum_client::GetHistoryRes;
+use rand::seq::SliceRandom;
+use rand::thread_rng;
+use std::iter::FromIterator;
+use std::time::Instant;
 
 #[derive(Debug)]
 pub struct ELSGetHistoryRes {
@@ -63,10 +66,148 @@ pub trait ElectrumLikeSync {
         scripts: I,
     ) -> Result<Vec<Vec<ELSListUnspentRes>>, Error>;
 
+    fn els_batch_transaction_get<'s, I: IntoIterator<Item = &'s Txid>>(
+        &self,
+        txids: I,
+    ) -> Result<Vec<Transaction>, Error>;
+
     fn els_transaction_get(&self, txid: &Txid) -> Result<Transaction, Error>;
 
     // Provided methods down here...
 
+    fn electrum_like_setup<D: BatchDatabase, P: Progress>(
+        &self,
+        stop_gap: Option<usize>,
+        database: &mut D,
+        _progress_update: P,
+    ) -> Result<(), Error> {
+        // TODO: progress
+        let start = Instant::now();
+        info!("start setup at {:?}", start);
+
+        let stop_gap = stop_gap.unwrap_or(20);
+        let chunk_size = stop_gap;
+
+        let mut history_txs_id = HashSet::new();
+        let mut txid_height = HashMap::new();
+        let mut max_index = HashMap::new();
+
+        let mut wallet_chains = vec![ScriptType::External, ScriptType::External];
+        // shuffling improve privacy, the server doesn't know my first request is from my internal or external addresses
+        wallet_chains.shuffle(&mut thread_rng());
+        // download history of our internal and external script_pubkeys
+        for script_type in wallet_chains {
+            let script_iter = database.iter_script_pubkeys(Some(script_type))?.into_iter();
+            for (i, chunk) in ChunksIterator::new(script_iter, stop_gap).enumerate() {
+                let call_result: Vec<Vec<ELSGetHistoryRes>> =
+                    maybe_await!(self.els_batch_script_get_history(chunk.iter()))?;
+                if let Some(max) = find_max_index(&call_result) {
+                    max_index.insert(script_type, max);
+                }
+                let flattened: Vec<ELSGetHistoryRes> = call_result.into_iter().flatten().collect();
+                info!("#{} of {:?} results:{}", i, script_type, flattened.len());
+                if flattened.is_empty() {
+                    // Didn't find anything in the last `stop_gap` script_pubkeys, breaking
+                    break;
+                }
+
+                for el in flattened {
+                    // el.height = -1 means unconfirmed with unconfirmed parents
+                    // el.height =  0 means unconfirmed with confirmed parents
+                    // but we threat those tx the same
+                    let height = el.height.max(0);
+                    if height == 0 {
+                        txid_height.insert(el.tx_hash, None);
+                    } else {
+                        txid_height.insert(el.tx_hash, Some(height as u32));
+                    }
+                    history_txs_id.insert(el.tx_hash);
+                }
+            }
+        }
+
+        // get db status
+        let tx_details_in_db = database.iter_txs(false)?;
+        let tx_raw_in_db = database.iter_raw_txs()?;
+        let txids_raw_in_db = HashSet::from_iter(tx_raw_in_db.iter().map(|tx| tx.txid()));
+
+        let new_txs =
+            self.download_needed_raw_txs(&history_txs_id, &txids_raw_in_db, chunk_size)?;
+        let new_headers =
+            self.download_needed_headers(&txid_height, &tx_details_in_db, chunk_size)?;
+
+        // save any raw tx not in db
+        let mut batch = database.begin_batch();
+        for new_tx in new_txs {
+            batch.set_raw_tx(&new_tx);
+        }
+        database.commit_batch(batch);
+
+        // save any tx details not in db but in history_txs_id
+        // remove any tx details in db but not in history_txs_id
+
+        for tx_details in tx_details_in_db {}
+
+        info!("finish setup, elapsed {:?}ms", start.elapsed().as_millis());
+
+        Ok(())
+    }
+
+    /// download txs identified by `history_txs_id` and theirs previous outputs if not already present in db
+    fn download_needed_raw_txs(
+        &self,
+        history_txs_id: &HashSet<Txid>,
+        txids_in_db: &HashSet<Txid>,
+        chunk_size: usize,
+    ) -> Result<Vec<Transaction>, Error> {
+        let mut txs_downloaded = vec![];
+        let txids_to_download: Vec<&Txid> = history_txs_id.difference(&txids_in_db).collect();
+        if !txids_to_download.is_empty() {
+            info!("got {} txs to download", txids_to_download.len());
+            txs_downloaded.extend(self.download_in_chunks(txids_to_download, chunk_size)?);
+            let mut previous_txids = HashSet::new();
+            let mut txids_downloaded = HashSet::new();
+            for tx in txs_downloaded.iter() {
+                txids_downloaded.insert(tx.txid());
+                for input in tx.input.iter() {
+                    previous_txids.insert(input.previous_output.txid);
+                }
+            }
+            let already_present: HashSet<Txid> =
+                txids_downloaded.union(&txids_in_db).cloned().collect();
+            let previous_txs_to_download: Vec<&Txid> =
+                previous_txids.difference(&already_present).collect();
+            txs_downloaded.extend(self.download_in_chunks(previous_txs_to_download, chunk_size)?);
+        }
+        Ok(txs_downloaded)
+    }
+
+    /// download headers at heights in `heights_set` if tx details not already present, returns a map heights -> timestamp
+    fn download_needed_headers(
+        &self,
+        _txid_height: &HashMap<Txid, Option<u32>>,
+        _tx_details_in_db: &Vec<TransactionDetails>,
+        _chunk_size: usize,
+    ) -> Result<HashMap<Txid, u64>, Error> {
+        // TODO
+        Ok(HashMap::new())
+    }
+
+    fn download_in_chunks(
+        &self,
+        to_download: Vec<&Txid>,
+        chunk_size: usize,
+    ) -> Result<Vec<Transaction>, Error> {
+        let mut txs_downloaded = vec![];
+        for chunk in ChunksIterator::new(to_download.into_iter(), chunk_size) {
+            let call_result: Vec<Transaction> =
+                maybe_await!(self.els_batch_transaction_get(chunk))?;
+            txs_downloaded.extend(call_result);
+        }
+        Ok(txs_downloaded)
+    }
+
+    /*
     fn electrum_like_setup<D: BatchDatabase, P: Progress>(
         &self,
         stop_gap: Option<usize>,
@@ -360,4 +501,13 @@ pub trait ElectrumLikeSync {
 
         Ok(to_check_later)
     }
+    */
+}
+
+fn find_max_index(vec: &Vec<Vec<ELSGetHistoryRes>>) -> Option<u32> {
+    vec.iter()
+        .enumerate()
+        .filter(|(_, v)| !v.is_empty())
+        .map(|(i, _)| i as u32)
+        .max()
 }

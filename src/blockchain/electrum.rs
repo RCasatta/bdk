@@ -169,6 +169,13 @@ impl ElectrumLikeSync for Client {
             .map_err(Error::Electrum)
     }
 
+    fn els_batch_transaction_get<'s, I: IntoIterator<Item = &'s Txid>>(
+        &self,
+        txids: I,
+    ) -> Result<Vec<Transaction>, Error> {
+        self.batch_transaction_get(txids).map_err(Error::Electrum)
+    }
+
     fn els_transaction_get(&self, txid: &Txid) -> Result<Transaction, Error> {
         self.transaction_get(txid).map_err(Error::Electrum)
     }
