@@ -11,34 +11,8 @@ jobs:
       matrix:
         rust:
           - stable
-          - 1.45.0 # MSRV
         features:
-          - minimal
-          - all-keys
-          - minimal,esplora
-          - key-value-db
           - electrum
-          - compact_filters
-          - cli-utils,esplora
-          - compiler
-        include:
-          - rust: stable
-            features: default
-            clippy: true
-            test: true
-          - rust: 1.45.0
-            features: default
-            clippy: true
-            test: true
-          - rust: nightly
-            features: test-md-docs
-            test: true
-          - rust: stable
-            features: compiler
-            test: true
-          - rust: 1.45.0
-            features: compiler
-            test: true
     steps:
       - name: checkout
         uses: actions/checkout@v2
