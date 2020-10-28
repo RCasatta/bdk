@@ -97,23 +97,8 @@ where
 {
     fn default() -> Self {
         TxBuilder {
-            recipients: Default::default(),
-            send_all: Default::default(),
-            fee_policy: Default::default(),
-            policy_path: Default::default(),
-            utxos: Default::default(),
-            unspendable: Default::default(),
-            manually_selected_only: Default::default(),
-            sighash: Default::default(),
-            ordering: Default::default(),
-            locktime: Default::default(),
-            rbf: Default::default(),
-            version: Default::default(),
-            change_policy: Default::default(),
-            force_non_witness_utxo: Default::default(),
-            coin_selection: Default::default(),
-
             phantom: PhantomData,
+            ..Default::default()
         }
     }
 }
