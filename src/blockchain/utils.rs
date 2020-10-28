@@ -131,17 +131,20 @@ pub trait ElectrumLikeSync {
         let tx_raw_in_db = database.iter_raw_txs()?;
         let txids_raw_in_db = HashSet::from_iter(tx_raw_in_db.iter().map(|tx| tx.txid()));
 
+        // download new txs and headers
         let new_txs =
             self.download_needed_raw_txs(&history_txs_id, &txids_raw_in_db, chunk_size)?;
-        let new_headers =
+        let new_timestamps =
             self.download_needed_headers(&txid_height, &tx_details_in_db, chunk_size)?;
 
         // save any raw tx not in db
-        let mut batch = database.begin_batch();
-        for new_tx in new_txs {
-            batch.set_raw_tx(&new_tx);
+        if !new_txs.is_empty() {
+            let mut batch = database.begin_batch();
+            for new_tx in new_txs {
+                batch.set_raw_tx(&new_tx);
+            }
+            database.commit_batch(batch);
         }
-        database.commit_batch(batch);
 
         // save any tx details not in db but in history_txs_id
         // remove any tx details in db but not in history_txs_id
