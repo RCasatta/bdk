@@ -67,7 +67,7 @@ use crate::error::Error;
 use crate::psbt::PSBTUtils;
 use crate::types::*;
 
-const CACHE_ADDR_BATCH_SIZE: u32 = 100;
+const CACHE_ADDR_BATCH_SIZE: u32 = 1_000;
 
 /// Type alias for a [`Wallet`] that uses [`OfflineBlockchain`]
 pub type OfflineWallet<D> = Wallet<OfflineBlockchain, D>;
