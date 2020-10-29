@@ -27,14 +27,13 @@ use std::collections::{HashMap, HashSet};
 #[allow(unused_imports)]
 use log::{debug, error, info, trace};
 
-use bitcoin::{Address, Network, OutPoint, Script, Transaction, Txid};
+use bitcoin::{OutPoint, Script, Transaction, Txid};
 
 use super::*;
 use crate::database::{BatchDatabase, BatchOperations, DatabaseUtils};
 use crate::error::Error;
 use crate::types::{ScriptType, TransactionDetails, UTXO};
 use crate::wallet::utils::ChunksIterator;
-use electrum_client::GetHistoryRes;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::iter::FromIterator;
@@ -75,6 +74,11 @@ pub trait ElectrumLikeSync {
 
     // Provided methods down here...
 
+    /// MR description
+    ///
+    /// improvement and future improvement: faster, consider more than 100 addresses, tx timestamp
+    /// future improvement:
+    ///
     fn electrum_like_setup<D: BatchDatabase, P: Progress>(
         &self,
         stop_gap: Option<usize>,
@@ -92,13 +96,14 @@ pub trait ElectrumLikeSync {
         let mut txid_height = HashMap::new();
         let mut max_index = HashMap::new();
 
-        let mut wallet_chains = vec![ScriptType::External, ScriptType::External];
+        let mut wallet_chains = vec![ScriptType::Internal, ScriptType::External];
         // shuffling improve privacy, the server doesn't know my first request is from my internal or external addresses
         wallet_chains.shuffle(&mut thread_rng());
         // download history of our internal and external script_pubkeys
         for script_type in wallet_chains {
             let script_iter = database.iter_script_pubkeys(Some(script_type))?.into_iter();
             for (i, chunk) in ChunksIterator::new(script_iter, stop_gap).enumerate() {
+                // TODO if i == last, should create another chunk of addresses in db
                 let call_result: Vec<Vec<ELSGetHistoryRes>> =
                     maybe_await!(self.els_batch_script_get_history(chunk.iter()))?;
                 if let Some(max) = find_max_index(&call_result) {
@@ -128,6 +133,7 @@ pub trait ElectrumLikeSync {
 
         // get db status
         let tx_details_in_db = database.iter_txs(false)?;
+        let txids_details_in_db = HashSet::from_iter(tx_details_in_db.iter().map(|tx| tx.txid));
         let tx_raw_in_db = database.iter_raw_txs()?;
         let txids_raw_in_db = HashSet::from_iter(tx_raw_in_db.iter().map(|tx| tx.txid()));
 
@@ -137,19 +143,28 @@ pub trait ElectrumLikeSync {
         let new_timestamps =
             self.download_needed_headers(&txid_height, &tx_details_in_db, chunk_size)?;
 
-        // save any raw tx not in db
+        // save any raw tx not in db, it's required they are in db for the next step
         if !new_txs.is_empty() {
             let mut batch = database.begin_batch();
             for new_tx in new_txs {
-                batch.set_raw_tx(&new_tx);
+                batch.set_raw_tx(&new_tx)?;
             }
-            database.commit_batch(batch);
+            database.commit_batch(batch)?;
         }
 
         // save any tx details not in db but in history_txs_id
-        // remove any tx details in db but not in history_txs_id
+        let mut batch = database.begin_batch();
+        for txid in history_txs_id.difference(&txids_details_in_db) {
+            let timestamp = *new_timestamps.get(txid).unwrap(); // TODO should be ok to unwrap
+            let height = txid_height.get(txid).unwrap().clone();
+            save_transaction_details_and_utxos(txid, database, timestamp, height, &mut batch)?;
+        }
+        database.commit_batch(batch)?;
 
-        for tx_details in tx_details_in_db {}
+
+        // remove any tx details in db but not in history_txs_id
+        for _tx_details in tx_details_in_db {}
+
 
         info!("finish setup, elapsed {:?}ms", start.elapsed().as_millis());
 
@@ -209,6 +224,8 @@ pub trait ElectrumLikeSync {
         }
         Ok(txs_downloaded)
     }
+
+
 
     /*
     fn electrum_like_setup<D: BatchDatabase, P: Progress>(
@@ -505,6 +522,71 @@ pub trait ElectrumLikeSync {
         Ok(to_check_later)
     }
     */
+}
+
+fn save_transaction_details_and_utxos<D: BatchDatabase>(txid: &Txid, database: &mut D, timestamp: u64, height: Option<u32>, updates: &mut dyn BatchOperations) -> Result<(), Error>{
+    let tx = database.get_raw_tx(txid).unwrap().unwrap();  // TODO everything is in db, but handle errors
+
+    let mut incoming: u64 = 0;
+    let mut outgoing: u64 = 0;
+
+    let mut inputs_sum: u64 = 0;
+    let mut outputs_sum: u64 = 0;
+
+    // look for our own inputs
+    for (i, input) in tx.input.iter().enumerate() {
+        // skip coinbase inputs
+        if input.previous_output.is_null() {
+            continue;
+        }
+
+        // We already downloaded all previous output txs in the previous step
+        if let Some(previous_output) = database.get_previous_output(&input.previous_output)? {
+            inputs_sum += previous_output.value;
+
+            if database.is_mine(&previous_output.script_pubkey)? {
+                outgoing += previous_output.value;
+
+                debug!("{} input #{} is mine, removing from utxo", txid, i);
+                updates.del_utxo(&input.previous_output)?;
+            }
+        } else {
+            // The input is not ours, but we still need to count it for the fees
+            let tx = database.get_raw_tx(&input.previous_output.txid)?.unwrap(); // TODO safe
+            inputs_sum += tx.output[input.previous_output.vout as usize].value;
+        }
+    }
+
+    for (i, output) in tx.output.iter().enumerate() {
+        // to compute the fees later
+        outputs_sum += output.value;
+
+        // this output is ours, we have a path to derive it
+        if let Some((script_type, _child)) =
+        database.get_path_from_script_pubkey(&output.script_pubkey)?
+        {
+            debug!("{} output #{} is mine, adding utxo", txid, i);
+            updates.set_utxo(&UTXO {
+                outpoint: OutPoint::new(tx.txid(), i as u32),
+                txout: output.clone(),
+                is_internal: script_type.is_internal(),
+            })?;
+            incoming += output.value;
+        }
+    }
+
+    let tx_details = TransactionDetails {
+        txid: tx.txid(),
+        transaction: Some(tx),
+        received: incoming,
+        sent: outgoing,
+        height,
+        timestamp,
+        fees: inputs_sum.saturating_sub(outputs_sum), // if the tx is a coinbase, fees would be negative
+    };
+    updates.set_tx(&tx_details)?;
+
+    Ok(())
 }
 
 fn find_max_index(vec: &Vec<Vec<ELSGetHistoryRes>>) -> Option<u32> {
