@@ -174,7 +174,7 @@ pub trait ElectrumLikeSync {
         let mut batch = database.begin_batch();
         for new_tx in new_txs.iter() {
             for input in new_tx.input.iter() {
-                batch.del_utxo(&input.previous_output);
+                batch.del_utxo(&input.previous_output)?;
             }
         }
         database.commit_batch(batch)?;
@@ -259,7 +259,7 @@ fn save_transaction_details_and_utxos<D: BatchDatabase>(
     let mut outputs_sum: u64 = 0;
 
     // look for our own inputs
-    for (i, input) in tx.input.iter().enumerate() {
+    for input in tx.input.iter() {
         // skip coinbase inputs
         if input.previous_output.is_null() {
             continue;
