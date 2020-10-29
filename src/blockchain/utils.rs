@@ -161,10 +161,14 @@ pub trait ElectrumLikeSync {
         }
         database.commit_batch(batch)?;
 
-
         // remove any tx details in db but not in history_txs_id
-        for _tx_details in tx_details_in_db {}
-
+        let mut batch = database.begin_batch();
+        for tx_details in database.iter_txs(false)? {
+            if !history_txs_id.contains(&tx_details.txid) {
+                batch.del_tx(&tx_details.txid, false)?;
+            }
+        }
+        database.commit_batch(batch)?;
 
         info!("finish setup, elapsed {:?}ms", start.elapsed().as_millis());
 
@@ -224,8 +228,6 @@ pub trait ElectrumLikeSync {
         }
         Ok(txs_downloaded)
     }
-
-
 
     /*
     fn electrum_like_setup<D: BatchDatabase, P: Progress>(
@@ -524,8 +526,14 @@ pub trait ElectrumLikeSync {
     */
 }
 
-fn save_transaction_details_and_utxos<D: BatchDatabase>(txid: &Txid, database: &mut D, timestamp: u64, height: Option<u32>, updates: &mut dyn BatchOperations) -> Result<(), Error>{
-    let tx = database.get_raw_tx(txid).unwrap().unwrap();  // TODO everything is in db, but handle errors
+fn save_transaction_details_and_utxos<D: BatchDatabase>(
+    txid: &Txid,
+    database: &mut D,
+    timestamp: u64,
+    height: Option<u32>,
+    updates: &mut dyn BatchOperations,
+) -> Result<(), Error> {
+    let tx = database.get_raw_tx(txid).unwrap().unwrap(); // TODO everything is in db, but handle errors
 
     let mut incoming: u64 = 0;
     let mut outgoing: u64 = 0;
@@ -563,7 +571,7 @@ fn save_transaction_details_and_utxos<D: BatchDatabase>(txid: &Txid, database: &
 
         // this output is ours, we have a path to derive it
         if let Some((script_type, _child)) =
-        database.get_path_from_script_pubkey(&output.script_pubkey)?
+            database.get_path_from_script_pubkey(&output.script_pubkey)?
         {
             debug!("{} output #{} is mine, adding utxo", txid, i);
             updates.set_utxo(&UTXO {
