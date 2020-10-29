@@ -207,12 +207,16 @@ pub trait ElectrumLikeSync {
     /// download headers at heights in `heights_set` if tx details not already present, returns a map heights -> timestamp
     fn download_needed_headers(
         &self,
-        _txid_height: &HashMap<Txid, Option<u32>>,
+        txid_height: &HashMap<Txid, Option<u32>>,
         _tx_details_in_db: &Vec<TransactionDetails>,
         _chunk_size: usize,
     ) -> Result<HashMap<Txid, u64>, Error> {
         // TODO
-        Ok(HashMap::new())
+        let mut timestamps = HashMap::new();
+        for txid in txid_height.keys() {
+            timestamps.insert(txid.clone(), 0);
+        }
+        Ok(timestamps)
     }
 
     fn download_in_chunks(
