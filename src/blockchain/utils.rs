@@ -349,11 +349,20 @@ fn save_transaction_details_and_utxos<D: BatchDatabase>(
 }
 
 fn find_max_index(vec: &Vec<Vec<ELSGetHistoryRes>>) -> Option<u32> {
-    vec.iter()
+    let mut max = None;
+    for (i, e) in vec.iter().enumerate() {
+        info!("-{} {:?}", i, e);
+       if !e.is_empty() {
+           info!("non empty, setting MAX!");
+           max = Some(i as u32);
+       }
+    }
+    max
+    /*vec.iter()
         .enumerate()
         .filter(|(_, v)| !v.is_empty())
         .map(|(i, _)| i as u32)
-        .max()
+        .max()*/
 }
 
 #[cfg(test)]
