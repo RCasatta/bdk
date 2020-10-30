@@ -925,6 +925,7 @@ where
         from: u32,
         mut count: u32,
     ) -> Result<(), Error> {
+        info!("cache_addresses {:?} from {}", script_type, from);
         let (descriptor, script_type) = self.get_descriptor_for_script_type(script_type);
         if descriptor.is_fixed() {
             if from > 0 {
@@ -1203,6 +1204,7 @@ where
             .get_script_pubkey_from_path(ScriptType::External, max_address)?
             .is_none()
         {
+            info!("External index {} is none", max_address);
             run_setup = true;
             self.cache_addresses(ScriptType::External, 0, max_address)?;
         }
@@ -1219,6 +1221,7 @@ where
                 .get_script_pubkey_from_path(ScriptType::Internal, max_address.saturating_sub(1))?
                 .is_none()
             {
+                info!("Internal index {} is none", max_address);
                 run_setup = true;
                 self.cache_addresses(ScriptType::Internal, 0, max_address)?;
             }
