@@ -225,7 +225,10 @@ pub trait ElectrumLikeSync {
                 txids_downloaded.union(&txids_in_db).cloned().collect();
             let previous_txs_to_download: Vec<&Txid> =
                 previous_txids.difference(&already_present).collect();
+            info!("got {} previous txs to download", previous_txs_to_download.len());
             txs_downloaded.extend(self.download_in_chunks(previous_txs_to_download, chunk_size)?);
+        } else {
+            debug!("No tx to download");
         }
         Ok(txs_downloaded)
     }
@@ -237,30 +240,35 @@ pub trait ElectrumLikeSync {
         txid_details_in_db: &HashSet<Txid>,
         chunk_size: usize,
     ) -> Result<HashMap<Txid, u64>, Error> {
+        let mut txid_timestamp = HashMap::new();
+
         let needed_txid_height: HashMap<&Txid, &Option<u32>> = txid_height
             .iter()
             .filter(|(txid, _)| !txid_details_in_db.contains(*txid))
             .collect();
         let needed_heights: Vec<u32> = needed_txid_height.iter().filter_map(|(_, b)| **b).collect();
-        info!("got {} headers to download", needed_heights.len());
-
-        let mut height_timestamp: HashMap<u32, u64> = HashMap::new();
-        for chunk in ChunksIterator::new(needed_heights.into_iter(), chunk_size) {
-            let call_result: Vec<BlockHeader> =
-                maybe_await!(self.els_batch_block_header(chunk.clone()))?;
-            let vec: Vec<(u32, u64)> = chunk
-                .into_iter()
-                .zip(call_result.iter().map(|h| h.time as u64))
-                .collect();
-            height_timestamp.extend(vec);
-        }
-
-        let mut txid_timestamp = HashMap::new();
-        for (txid, height_opt) in needed_txid_height {
-            if let Some(height) = height_opt {
-                txid_timestamp.insert(txid.clone(), *height_timestamp.get(height).unwrap());
-                // TODO check unwrap
+        if !needed_heights.is_empty() {
+            info!("got {} headers to download for tx timestamp", needed_heights.len());
+            let mut height_timestamp: HashMap<u32, u64> = HashMap::new();
+            for chunk in ChunksIterator::new(needed_heights.into_iter(), chunk_size) {
+                let call_result: Vec<BlockHeader> =
+                    maybe_await!(self.els_batch_block_header(chunk.clone()))?;
+                let vec: Vec<(u32, u64)> = chunk
+                    .into_iter()
+                    .zip(call_result.iter().map(|h| h.time as u64))
+                    .collect();
+                height_timestamp.extend(vec);
             }
+
+
+            for (txid, height_opt) in needed_txid_height {
+                if let Some(height) = height_opt {
+                    txid_timestamp.insert(txid.clone(), *height_timestamp.get(height).unwrap());
+                    // TODO check unwrap
+                }
+            }
+        } else {
+            debug!("No headers to download for tx timestamp");
         }
 
         Ok(txid_timestamp)
