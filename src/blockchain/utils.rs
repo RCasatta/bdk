@@ -226,11 +226,11 @@ pub trait ElectrumLikeSync {
         txid_details_in_db: &HashSet<Txid>,
         chunk_size: usize,
     ) -> Result<HashMap<Txid, u64>, Error> {
-        let needed_heights: Vec<u32> = txid_height
+        let needed_txid_height: HashMap<&Txid, &Option<u32>> = txid_height
             .iter()
             .filter(|(txid, _)| !txid_details_in_db.contains(*txid))
-            .filter_map(|(_, opt)| opt.clone())
             .collect();
+        let needed_heights: Vec<u32> = needed_txid_height.iter().filter_map(|(_, b)| **b).collect();
 
         let mut height_timestamp: HashMap<u32, u64> = HashMap::new();
         for chunk in ChunksIterator::new(needed_heights.into_iter(), chunk_size) {
@@ -244,7 +244,7 @@ pub trait ElectrumLikeSync {
         }
 
         let mut txid_timestamp = HashMap::new();
-        for (txid, height_opt) in txid_height {
+        for (txid, height_opt) in needed_txid_height {
             if let Some(height) = height_opt {
                 txid_timestamp.insert(txid.clone(), *height_timestamp.get(height).unwrap());
                 // TODO check unwrap
