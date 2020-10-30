@@ -137,6 +137,7 @@ pub trait ElectrumLikeSync {
         }
 
         // saving max indexes
+        info!("max indexes are: {:?}", max_index);
         for script_type in wallet_chains.iter() {
             if let Some(index) = max_index.get(script_type) {
                 database.set_last_index(*script_type, *index)?;
