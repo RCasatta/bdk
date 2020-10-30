@@ -112,6 +112,7 @@ pub trait ElectrumLikeSync {
                 let call_result: Vec<Vec<ELSGetHistoryRes>> =
                     maybe_await!(self.els_batch_script_get_history(chunk.iter()))?;
                 if let Some(max) = find_max_index(&call_result) {
+                    info!("#{} of {:?} max:{}", i, script_type, max);
                     if max > 0 {
                         max_index.insert(script_type, max + (i * chunk_size) as u32);
                     }
