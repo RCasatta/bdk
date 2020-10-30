@@ -42,7 +42,7 @@ use std::collections::HashSet;
 #[allow(unused_imports)]
 use log::{debug, error, info, trace};
 
-use bitcoin::{Script, Transaction, Txid};
+use bitcoin::{BlockHeader, Script, Transaction, Txid};
 
 use electrum_client::{Client, ElectrumApi};
 
@@ -174,6 +174,13 @@ impl ElectrumLikeSync for Client {
         txids: I,
     ) -> Result<Vec<Transaction>, Error> {
         self.batch_transaction_get(txids).map_err(Error::Electrum)
+    }
+
+    fn els_batch_block_header<I: IntoIterator<Item = u32>>(
+        &self,
+        heights: I,
+    ) -> Result<Vec<BlockHeader>, Error> {
+        self.batch_block_header(heights).map_err(Error::Electrum)
     }
 
     fn els_transaction_get(&self, txid: &Txid) -> Result<Transaction, Error> {

@@ -27,7 +27,7 @@ use std::collections::{HashMap, HashSet};
 #[allow(unused_imports)]
 use log::{debug, error, info, trace};
 
-use bitcoin::{OutPoint, Script, Transaction, Txid};
+use bitcoin::{BlockHeader, OutPoint, Script, Transaction, Txid};
 
 use super::*;
 use crate::database::{BatchDatabase, BatchOperations, DatabaseUtils};
@@ -69,6 +69,11 @@ pub trait ElectrumLikeSync {
         &self,
         txids: I,
     ) -> Result<Vec<Transaction>, Error>;
+
+    fn els_batch_block_header<I: IntoIterator<Item = u32>>(
+        &self,
+        heights: I,
+    ) -> Result<Vec<BlockHeader>, Error>;
 
     fn els_transaction_get(&self, txid: &Txid) -> Result<Transaction, Error>;
 
@@ -141,10 +146,11 @@ pub trait ElectrumLikeSync {
         let new_txs =
             self.download_needed_raw_txs(&history_txs_id, &txids_raw_in_db, chunk_size)?;
         let new_timestamps =
-            self.download_needed_headers(&txid_height, &tx_details_in_db, chunk_size)?;
+            self.download_needed_headers(&txid_height, &txids_details_in_db, chunk_size)?;
 
         // save any raw tx not in db, it's required they are in db for the next step
         if !new_txs.is_empty() {
+            // TODO what if something breaks in the middle of the sync, may be better to save raw tx at every chunk during download
             let mut batch = database.begin_batch();
             for new_tx in new_txs.iter() {
                 batch.set_raw_tx(new_tx)?;
@@ -217,15 +223,31 @@ pub trait ElectrumLikeSync {
     fn download_needed_headers(
         &self,
         txid_height: &HashMap<Txid, Option<u32>>,
-        _tx_details_in_db: &Vec<TransactionDetails>,
-        _chunk_size: usize,
+        txid_details_in_db: &HashSet<Txid>,
+        chunk_size: usize,
     ) -> Result<HashMap<Txid, u64>, Error> {
-        // TODO
-        let mut timestamps = HashMap::new();
-        for txid in txid_height.keys() {
-            timestamps.insert(txid.clone(), 0);
+
+        let needed_heights: Vec<u32> = txid_height
+            .iter()
+            .filter(|(txid, _)| !txid_details_in_db.contains(*txid))
+            .filter_map(|(_, opt)| opt.clone())
+            .collect();
+
+        let mut height_timestamp: HashMap<u32, u64> = HashMap::new();
+        for chunk in ChunksIterator::new(needed_heights.into_iter(), chunk_size) {
+            let call_result: Vec<BlockHeader> = maybe_await!(self.els_batch_block_header(chunk.clone()))?;
+            let vec: Vec<(u32, u64)> =chunk.into_iter().zip(call_result.iter().map(|h| h.time as u64)).collect();
+            height_timestamp.extend(vec);
         }
-        Ok(timestamps)
+
+        let mut txid_timestamp = HashMap::new();
+        for (txid, height_opt) in txid_height {
+            if let Some(height) = height_opt {
+                txid_timestamp.insert(txid.clone(), *height_timestamp.get(height).unwrap());  // TODO check unwrap
+            }
+        }
+
+        Ok(txid_timestamp)
     }
 
     fn download_in_chunks(
