@@ -82,7 +82,6 @@ pub fn make_cli_subcommands<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("max_addresses")
                 .required(false)
                 .takes_value(true)
-                .short("max_addresses")
                 .long("max_addresses")
                 .help("max addresses to consider"),
         ))
