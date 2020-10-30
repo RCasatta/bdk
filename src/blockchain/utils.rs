@@ -370,7 +370,7 @@ mod test {
         let sk = ExtendedPrivKey::new_master(Network::Testnet, &[0u8; 32]).unwrap();
         let pk = ExtendedPubKey::from_private(&secp, &sk);
         for i in 0..10_000 {
-            pk.derive_pub(&secp,&vec![ChildNumber::from(i)]);
+            let _ = pk.derive_pub(&secp,&vec![ChildNumber::from(i)]).unwrap();
         }
     }
 
