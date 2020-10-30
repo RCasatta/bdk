@@ -372,7 +372,7 @@ mod test {
         let mut total = 0u32;
         for i in 0..10_000 {
             let a = pk.derive_pub(&secp,&vec![ChildNumber::from(i)]).unwrap();
-            total += a.depth;
+            total += a.depth as u32;
         }
         assert_eq!(total, 0);
     }
