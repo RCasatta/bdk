@@ -1206,7 +1206,7 @@ where
         {
             info!("External index {} is none", max_address);
             run_setup = true;
-            self.cache_addresses(ScriptType::External, 0, max_address)?;
+            self.cache_addresses(ScriptType::External, 0, max_address.saturating_sub(1))?;
         }
 
         if let Some(change_descriptor) = &self.change_descriptor {
