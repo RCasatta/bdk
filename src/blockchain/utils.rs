@@ -112,10 +112,7 @@ pub trait ElectrumLikeSync {
                 let call_result: Vec<Vec<ELSGetHistoryRes>> =
                     maybe_await!(self.els_batch_script_get_history(chunk.iter()))?;
                 if let Some(max) = find_max_index(&call_result) {
-                    info!("#{} of {:?} max:{} {:?} {:?}", i, script_type, max, call_result, find_max_index(&call_result));
-                    if max > 0 {
-                        max_index.insert(script_type, max + (i * chunk_size) as u32);
-                    }
+                    max_index.insert(script_type, max + (i * chunk_size) as u32);
                 }
                 let flattened: Vec<ELSGetHistoryRes> = call_result.into_iter().flatten().collect();
                 info!("#{} of {:?} results:{}", i, script_type, flattened.len());  // TODO go debug!
@@ -349,20 +346,11 @@ fn save_transaction_details_and_utxos<D: BatchDatabase>(
 }
 
 fn find_max_index(vec: &Vec<Vec<ELSGetHistoryRes>>) -> Option<u32> {
-    let mut max = None;
-    for (i, e) in vec.iter().enumerate() {
-        info!("-{} {:?}", i, e);
-       if !e.is_empty() {
-           info!("non empty, setting MAX!");
-           max = Some(i as u32);
-       }
-    }
-    max
-    /*vec.iter()
+    vec.iter()
         .enumerate()
         .filter(|(_, v)| !v.is_empty())
         .map(|(i, _)| i as u32)
-        .max()*/
+        .max()
 }
 
 #[cfg(test)]
