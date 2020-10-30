@@ -904,6 +904,7 @@ where
             .get_script_pubkey_from_path(script_type, index)?
             .is_none()
         {
+            info!("caching addresses from index {}", index);
             self.cache_addresses(script_type, index, CACHE_ADDR_BATCH_SIZE)?;
         }
 

@@ -136,6 +136,14 @@ pub trait ElectrumLikeSync {
             }
         }
 
+        // saving max indexes
+        for script_type in wallet_chains {
+            if let Some(index) = max_index.get(&script_type) {
+                database.set_last_index(script_type, *index)
+            }
+        }
+
+
         // get db status
         let tx_details_in_db = database.iter_txs(false)?;
         let txids_details_in_db = HashSet::from_iter(tx_details_in_db.iter().map(|tx| tx.txid));
