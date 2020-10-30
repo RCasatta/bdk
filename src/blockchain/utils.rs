@@ -361,16 +361,16 @@ fn find_max_index(vec: &Vec<Vec<ELSGetHistoryRes>>) -> Option<u32> {
 mod test {
     use crate::blockchain::utils::{find_max_index, ELSGetHistoryRes};
     use bitcoin::{Txid, Network};
-    use bitcoin::util::bip32::{ExtendedPrivKey, ExtendedPubKey};
+    use bitcoin::util::bip32::{ExtendedPrivKey, ExtendedPubKey, ChildNumber};
+    use bitcoin::secp256k1::Secp256k1;
 
     #[test]
-    fn test_derive() {
+    fn test_derive_10000() {
+        let secp = Secp256k1::new();
         let sk = ExtendedPrivKey::new_master(Network::Testnet, &[0u8; 32]).unwrap();
         let pk = ExtendedPubKey::from_private(&secp, &sk);
-        println!("{}", sk);
-        println!("{}", pk);
         for i in 0..10_000 {
-            pk.derive_pub(&secp,&vec![ChildNumber::from(i)])
+            pk.derive_pub(&secp,&vec![ChildNumber::from(i)]);
         }
     }
 
