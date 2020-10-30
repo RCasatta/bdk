@@ -369,9 +369,12 @@ mod test {
         let secp = Secp256k1::new();
         let sk = ExtendedPrivKey::new_master(Network::Testnet, &[0u8; 32]).unwrap();
         let pk = ExtendedPubKey::from_private(&secp, &sk);
+        let mut total = 0u32;
         for i in 0..10_000 {
-            let _ = pk.derive_pub(&secp,&vec![ChildNumber::from(i)]).unwrap();
+            let a = pk.derive_pub(&secp,&vec![ChildNumber::from(i)]).unwrap();
+            total += a.depth;
         }
+        assert_eq!(total, 0);
     }
 
     #[test]
