@@ -112,13 +112,13 @@ pub trait ElectrumLikeSync {
                 let call_result: Vec<Vec<ELSGetHistoryRes>> =
                     maybe_await!(self.els_batch_script_get_history(chunk.iter()))?;
                 if let Some(max) = find_max_index(&call_result) {
-                    info!("#{} of {:?} max:{} {:?}", i, script_type, max, call_result);
+                    info!("#{} of {:?} max:{} {:?} {:?}", i, script_type, max, call_result, find_max_index(&call_result));
                     if max > 0 {
                         max_index.insert(script_type, max + (i * chunk_size) as u32);
                     }
                 }
                 let flattened: Vec<ELSGetHistoryRes> = call_result.into_iter().flatten().collect();
-                info!("#{} of {:?} results:{}", i, script_type, flattened.len());
+                info!("#{} of {:?} results:{}", i, script_type, flattened.len());  // TODO go debug!
                 if flattened.is_empty() {
                     // Didn't find anything in the last `stop_gap` script_pubkeys, breaking
                     break;
@@ -367,7 +367,11 @@ mod test {
         assert_eq!(find_max_index(&vec), None);
         vec.push(vec![]);
         assert_eq!(find_max_index(&vec), None);
-        vec.push(vec![ELSGetHistoryRes { height: 0, tx_hash: Txid::default()}]);
+
+        vec.push(vec![ELSGetHistoryRes { height: 0, tx_hash: Txid::default() }]);
         assert_eq!(find_max_index(&vec), Some(1));
+
+        let test = vec![vec![ELSGetHistoryRes { height: 0, tx_hash: Txid::default() }], vec![ELSGetHistoryRes { height: 0, tx_hash: Txid::default() }], vec![], vec![]];
+        assert_eq!(find_max_index(&test), Some(1));
     }
 }
