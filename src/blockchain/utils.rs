@@ -92,7 +92,7 @@ pub trait ElectrumLikeSync {
     ) -> Result<(), Error> {
         // TODO: progress
         let start = Instant::now();
-        info!("start setup at {:?}", start);
+        debug!("start setup");
 
         let stop_gap = stop_gap.unwrap_or(20);
         let chunk_size = stop_gap;
@@ -115,7 +115,7 @@ pub trait ElectrumLikeSync {
                     max_index.insert(script_type, max + (i * chunk_size) as u32);
                 }
                 let flattened: Vec<ELSGetHistoryRes> = call_result.into_iter().flatten().collect();
-                info!("#{} of {:?} results:{}", i, script_type, flattened.len());  // TODO go debug!
+                debug!("#{} of {:?} results:{}", i, script_type, flattened.len());
                 if flattened.is_empty() {
                     // Didn't find anything in the last `stop_gap` script_pubkeys, breaking
                     break;
