@@ -219,14 +219,13 @@ pub trait ElectrumLikeSync {
         Ok(txs_downloaded)
     }
 
-    /// download headers at heights in `heights_set` if tx details not already present, returns a map heights -> timestamp
+    /// download headers at heights in `txid_height` if tx details not already present, returns a map Txid -> timestamp
     fn download_needed_headers(
         &self,
         txid_height: &HashMap<Txid, Option<u32>>,
         txid_details_in_db: &HashSet<Txid>,
         chunk_size: usize,
     ) -> Result<HashMap<Txid, u64>, Error> {
-
         let needed_heights: Vec<u32> = txid_height
             .iter()
             .filter(|(txid, _)| !txid_details_in_db.contains(*txid))
@@ -235,15 +234,20 @@ pub trait ElectrumLikeSync {
 
         let mut height_timestamp: HashMap<u32, u64> = HashMap::new();
         for chunk in ChunksIterator::new(needed_heights.into_iter(), chunk_size) {
-            let call_result: Vec<BlockHeader> = maybe_await!(self.els_batch_block_header(chunk.clone()))?;
-            let vec: Vec<(u32, u64)> =chunk.into_iter().zip(call_result.iter().map(|h| h.time as u64)).collect();
+            let call_result: Vec<BlockHeader> =
+                maybe_await!(self.els_batch_block_header(chunk.clone()))?;
+            let vec: Vec<(u32, u64)> = chunk
+                .into_iter()
+                .zip(call_result.iter().map(|h| h.time as u64))
+                .collect();
             height_timestamp.extend(vec);
         }
 
         let mut txid_timestamp = HashMap::new();
         for (txid, height_opt) in txid_height {
             if let Some(height) = height_opt {
-                txid_timestamp.insert(txid.clone(), *height_timestamp.get(height).unwrap());  // TODO check unwrap
+                txid_timestamp.insert(txid.clone(), *height_timestamp.get(height).unwrap());
+                // TODO check unwrap
             }
         }
 
