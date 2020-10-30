@@ -897,7 +897,10 @@ where
                 .borrow_mut()
                 .increment_last_index(script_type)?,
         };
-        info!("fetch_and_increment_index {:?} index {}", script_type, index);
+        info!(
+            "fetch_and_increment_index {:?} index {}",
+            script_type, index
+        );
         if self
             .database
             .borrow()
@@ -1201,12 +1204,12 @@ where
         if self
             .database
             .borrow()
-            .get_script_pubkey_from_path(ScriptType::External, max_address)?
+            .get_script_pubkey_from_path(ScriptType::External, max_address.saturating_sub(1))?
             .is_none()
         {
             info!("External index {} is none", max_address);
             run_setup = true;
-            self.cache_addresses(ScriptType::External, 0, max_address.saturating_sub(1))?;
+            self.cache_addresses(ScriptType::External, 0, max_address)?;
         }
 
         if let Some(change_descriptor) = &self.change_descriptor {

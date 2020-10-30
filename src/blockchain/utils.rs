@@ -82,7 +82,7 @@ pub trait ElectrumLikeSync {
     /// MR description
     ///
     /// improvement and future improvement: faster, consider more than 100 addresses, tx timestamp
-    /// future improvement:
+    /// future improvement: remove max_address, generate addresses until you find stuff
     ///
     fn electrum_like_setup<D: BatchDatabase, P: Progress>(
         &self,
@@ -106,7 +106,10 @@ pub trait ElectrumLikeSync {
         wallet_chains.shuffle(&mut thread_rng());
         // download history of our internal and external script_pubkeys
         for script_type in wallet_chains.iter() {
-            let script_iter = database.iter_script_pubkeys(Some(*script_type))?.into_iter();
+            let script_iter = database
+                .iter_script_pubkeys(Some(*script_type))?
+                .into_iter();
+
             for (i, chunk) in ChunksIterator::new(script_iter, stop_gap).enumerate() {
                 // TODO if i == last, should create another chunk of addresses in db
                 let call_result: Vec<Vec<ELSGetHistoryRes>> =
@@ -365,10 +368,24 @@ mod test {
         vec.push(vec![]);
         assert_eq!(find_max_index(&vec), None);
 
-        vec.push(vec![ELSGetHistoryRes { height: 0, tx_hash: Txid::default() }]);
+        vec.push(vec![ELSGetHistoryRes {
+            height: 0,
+            tx_hash: Txid::default(),
+        }]);
         assert_eq!(find_max_index(&vec), Some(1));
 
-        let test = vec![vec![ELSGetHistoryRes { height: 0, tx_hash: Txid::default() }], vec![ELSGetHistoryRes { height: 0, tx_hash: Txid::default() }], vec![], vec![]];
+        let test = vec![
+            vec![ELSGetHistoryRes {
+                height: 0,
+                tx_hash: Txid::default(),
+            }],
+            vec![ELSGetHistoryRes {
+                height: 0,
+                tx_hash: Txid::default(),
+            }],
+            vec![],
+            vec![],
+        ];
         assert_eq!(find_max_index(&test), Some(1));
     }
 }
