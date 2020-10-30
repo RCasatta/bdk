@@ -112,8 +112,7 @@ pub trait ElectrumLikeSync {
                 let call_result: Vec<Vec<ELSGetHistoryRes>> =
                     maybe_await!(self.els_batch_script_get_history(chunk.iter()))?;
                 if let Some(max) = find_max_index(&call_result) {
-                    info!("#{} of {:?} max:{}", i, script_type, max);
-                    info!("{:?}", call_result);
+                    info!("#{} of {:?} max:{} {:?}", i, script_type, max, call_result);
                     if max > 0 {
                         max_index.insert(script_type, max + (i * chunk_size) as u32);
                     }
@@ -355,4 +354,20 @@ fn find_max_index(vec: &Vec<Vec<ELSGetHistoryRes>>) -> Option<u32> {
         .filter(|(_, v)| !v.is_empty())
         .map(|(i, _)| i as u32)
         .max()
+}
+
+#[cfg(test)]
+mod test {
+    use crate::blockchain::utils::{find_max_index, ELSGetHistoryRes};
+    use bitcoin::Txid;
+
+    #[test]
+    fn test_find_max_index() {
+        let mut vec = vec![];
+        assert_eq!(find_max_index(&vec), None);
+        vec.push(vec![]);
+        assert_eq!(find_max_index(&vec), None);
+        vec.push(vec![ELSGetHistoryRes { height: 0, tx_hash: Txid::default()}]);
+        assert_eq!(find_max_index(&vec), Some(1));
+    }
 }
