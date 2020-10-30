@@ -897,7 +897,7 @@ where
                 .borrow_mut()
                 .increment_last_index(script_type)?,
         };
-
+        info!("fetch_and_increment_index {:?} index {}", script_type, index);
         if self
             .database
             .borrow()
