@@ -105,8 +105,8 @@ pub trait ElectrumLikeSync {
         // shuffling improve privacy, the server doesn't know my first request is from my internal or external addresses
         wallet_chains.shuffle(&mut thread_rng());
         // download history of our internal and external script_pubkeys
-        for script_type in wallet_chains {
-            let script_iter = database.iter_script_pubkeys(Some(script_type))?.into_iter();
+        for script_type in wallet_chains.iter() {
+            let script_iter = database.iter_script_pubkeys(Some(*script_type))?.into_iter();
             for (i, chunk) in ChunksIterator::new(script_iter, stop_gap).enumerate() {
                 // TODO if i == last, should create another chunk of addresses in db
                 let call_result: Vec<Vec<ELSGetHistoryRes>> =
@@ -137,12 +137,11 @@ pub trait ElectrumLikeSync {
         }
 
         // saving max indexes
-        for script_type in wallet_chains {
-            if let Some(index) = max_index.get(&script_type) {
-                database.set_last_index(script_type, *index)
+        for script_type in wallet_chains.iter() {
+            if let Some(index) = max_index.get(script_type) {
+                database.set_last_index(*script_type, *index)?;
             }
         }
-
 
         // get db status
         let tx_details_in_db = database.iter_txs(false)?;
