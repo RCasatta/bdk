@@ -242,6 +242,7 @@ pub trait ElectrumLikeSync {
             .filter(|(txid, _)| !txid_details_in_db.contains(*txid))
             .collect();
         let needed_heights: Vec<u32> = needed_txid_height.iter().filter_map(|(_, b)| **b).collect();
+        info!("got {} headers to download", needed_heights.len());
 
         let mut height_timestamp: HashMap<u32, u64> = HashMap::new();
         for chunk in ChunksIterator::new(needed_heights.into_iter(), chunk_size) {
@@ -359,7 +360,19 @@ fn find_max_index(vec: &Vec<Vec<ELSGetHistoryRes>>) -> Option<u32> {
 #[cfg(test)]
 mod test {
     use crate::blockchain::utils::{find_max_index, ELSGetHistoryRes};
-    use bitcoin::Txid;
+    use bitcoin::{Txid, Network};
+    use bitcoin::util::bip32::{ExtendedPrivKey, ExtendedPubKey};
+
+    #[test]
+    fn test_derive() {
+        let sk = ExtendedPrivKey::new_master(Network::Testnet, &[0u8; 32]).unwrap();
+        let pk = ExtendedPubKey::from_private(&secp, &sk);
+        println!("{}", sk);
+        println!("{}", pk);
+        for i in 0..10_000 {
+            pk.derive_pub(&secp,&vec![ChildNumber::from(i)])
+        }
+    }
 
     #[test]
     fn test_find_max_index() {
