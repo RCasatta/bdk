@@ -155,19 +155,9 @@ pub trait ElectrumLikeSync {
 
         // download new txs and headers
         let new_txs =
-            self.download_needed_raw_txs(&history_txs_id, &txids_raw_in_db, chunk_size)?;
+            self.download_needed_raw_txs(&history_txs_id, &txids_raw_in_db, chunk_size, database)?;
         let new_timestamps =
             self.download_needed_headers(&txid_height, &txids_details_in_db, chunk_size)?;
-
-        // save any raw tx not in db, it's required they are in db for the next step
-        if !new_txs.is_empty() {
-            // TODO what if something breaks in the middle of the sync, may be better to save raw tx at every chunk during download
-            let mut batch = database.begin_batch();
-            for new_tx in new_txs.iter() {
-                batch.set_raw_tx(new_tx)?;
-            }
-            database.commit_batch(batch)?;
-        }
 
         // save any tx details not in db but in history_txs_id
         let mut batch = database.begin_batch();
@@ -202,17 +192,18 @@ pub trait ElectrumLikeSync {
     }
 
     /// download txs identified by `history_txs_id` and theirs previous outputs if not already present in db
-    fn download_needed_raw_txs(
+    fn download_needed_raw_txs<D: BatchDatabase>(
         &self,
         history_txs_id: &HashSet<Txid>,
         txids_in_db: &HashSet<Txid>,
         chunk_size: usize,
+        database: &mut D,
     ) -> Result<Vec<Transaction>, Error> {
         let mut txs_downloaded = vec![];
         let txids_to_download: Vec<&Txid> = history_txs_id.difference(&txids_in_db).collect();
         if !txids_to_download.is_empty() {
             info!("got {} txs to download", txids_to_download.len());
-            txs_downloaded.extend(self.download_in_chunks(txids_to_download, chunk_size)?);
+            txs_downloaded.extend(self.download_in_chunks(txids_to_download, chunk_size, database)?);
             let mut previous_txids = HashSet::new();
             let mut txids_downloaded = HashSet::new();
             for tx in txs_downloaded.iter() {
@@ -226,7 +217,7 @@ pub trait ElectrumLikeSync {
             let previous_txs_to_download: Vec<&Txid> =
                 previous_txids.difference(&already_present).collect();
             info!("got {} previous txs to download", previous_txs_to_download.len());
-            txs_downloaded.extend(self.download_in_chunks(previous_txs_to_download, chunk_size)?);
+            txs_downloaded.extend(self.download_in_chunks(previous_txs_to_download, chunk_size, database)?);
         } else {
             debug!("No tx to download");
         }
@@ -274,15 +265,21 @@ pub trait ElectrumLikeSync {
         Ok(txid_timestamp)
     }
 
-    fn download_in_chunks(
+    fn download_in_chunks<D: BatchDatabase>(
         &self,
         to_download: Vec<&Txid>,
         chunk_size: usize,
+        database: &mut D,
     ) -> Result<Vec<Transaction>, Error> {
         let mut txs_downloaded = vec![];
         for chunk in ChunksIterator::new(to_download.into_iter(), chunk_size) {
             let call_result: Vec<Transaction> =
                 maybe_await!(self.els_batch_transaction_get(chunk))?;
+            let mut batch = database.begin_batch();
+            for new_tx in call_result.iter() {
+                batch.set_raw_tx(new_tx)?;
+            }
+            database.commit_batch(batch)?;
             txs_downloaded.extend(call_result);
         }
         Ok(txs_downloaded)
