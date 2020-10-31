@@ -157,13 +157,13 @@ pub trait ElectrumLikeSync {
         let new_txs =
             self.download_needed_raw_txs(&history_txs_id, &txids_raw_in_db, chunk_size, database)?;
         let new_timestamps =
-            self.download_needed_headers(&txid_height, &txids_details_in_db, chunk_size)?;
+            self.download_needed_headers(&txid_height, &txids_details_in_db, chunk_size)?;  //TODO should download not only if tx detail not exist but also the ones that have 0 as timestamp or
 
         // save any tx details not in db but in history_txs_id
         let mut batch = database.begin_batch();
         for txid in history_txs_id.difference(&txids_details_in_db) {
-            let timestamp = *new_timestamps.get(txid).unwrap(); // TODO should be ok to unwrap
-            let height = txid_height.get(txid).unwrap().clone();
+            let timestamp = *new_timestamps.get(txid).unwrap_or(&0u64);
+            let height = txid_height.get(txid).unwrap_or(&None).clone();
             save_transaction_details_and_utxos(txid, database, timestamp, height, &mut batch)?;
         }
         database.commit_batch(batch)?;
