@@ -191,7 +191,6 @@ pub trait ElectrumLikeSync {
         database.commit_batch(batch)?;
 
         // remove any spent utxo
-        // TODO remove RBF or replaced
         let mut batch = database.begin_batch();
         for new_tx in new_txs.iter() {
             for input in new_tx.input.iter() {
@@ -356,6 +355,12 @@ fn save_transaction_details_and_utxos<D: BatchDatabase>(
                 .expect("previous tx missing"); // TODO safe
             inputs_sum += tx.output[input.previous_output.vout as usize].value;
         }
+
+        // removes conflicting UTXO if any (generated from same inputs, like for example RBF)
+        if let Some(utxo) = utxo_deps.get(&input.previous_output) {
+            updates.del_utxo(&utxo.outpoint)?;
+        }
+
     }
 
     for (i, output) in tx.output.iter().enumerate() {
@@ -373,12 +378,6 @@ fn save_transaction_details_and_utxos<D: BatchDatabase>(
                 is_internal: script_type.is_internal(),
             })?;
 
-            // removes conflicting UTXO (generate from same inputs, like for example RBF)
-            for input in tx.input.iter() {
-                if let Some(utxo) = utxo_deps.get(&input.previous_output) {
-                    updates.del_utxo(&utxo.outpoint)?;
-                }
-            }
             incoming += output.value;
         }
     }
