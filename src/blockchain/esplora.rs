@@ -50,7 +50,7 @@ use reqwest::{Client, StatusCode};
 use bitcoin::consensus::{deserialize, serialize};
 use bitcoin::hashes::hex::ToHex;
 use bitcoin::hashes::{sha256, Hash};
-use bitcoin::{Script, Transaction, Txid, BlockHeader};
+use bitcoin::{BlockHeader, Script, Transaction, Txid};
 
 use self::utils::{ELSGetHistoryRes, ELSListUnspentRes, ElectrumLikeSync};
 use super::*;
@@ -316,11 +316,17 @@ impl ElectrumLikeSync for UrlClient {
         await_or_block!(future)
     }
 
-    fn els_batch_transaction_get<'s, I: IntoIterator<Item=&'s Txid>>(&self, _txids: I) -> Result<Vec<Transaction>, Error> {
+    fn els_batch_transaction_get<'s, I: IntoIterator<Item = &'s Txid>>(
+        &self,
+        _txids: I,
+    ) -> Result<Vec<Transaction>, Error> {
         unimplemented!()
     }
 
-    fn els_batch_block_header<I: IntoIterator<Item=u32>>(&self, _heights: I) -> Result<Vec<BlockHeader>, Error> {
+    fn els_batch_block_header<I: IntoIterator<Item = u32>>(
+        &self,
+        _heights: I,
+    ) -> Result<Vec<BlockHeader>, Error> {
         unimplemented!()
     }
 

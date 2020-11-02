@@ -162,9 +162,9 @@ pub trait ElectrumLikeSync {
 
         // download new txs and headers
         let new_txs =
-            self.download_needed_raw_txs(&history_txs_id, &txs_raw_in_db, chunk_size, database)?;
+            maybe_await!(self.download_needed_raw_txs(&history_txs_id, &txs_raw_in_db, chunk_size, database))?;
         let new_timestamps =
-            self.download_needed_headers(&txid_height, &txs_details_in_db, chunk_size)?; //TODO should download not only if tx detail not exist but also the ones that have 0 as timestamp or
+            maybe_await!(self.download_needed_headers(&txid_height, &txs_details_in_db, chunk_size))?; //TODO should download not only if tx detail not exist but also the ones that have 0 as timestamp or
 
         // save any tx details not in db but in history_txs_id or with different height/timestamp
         let mut batch = database.begin_batch();
@@ -218,6 +218,7 @@ pub trait ElectrumLikeSync {
     }
 
     /// download txs identified by `history_txs_id` and theirs previous outputs if not already present in db
+    #[maybe_async]
     fn download_needed_raw_txs<D: BatchDatabase>(
         &self,
         history_txs_id: &HashSet<Txid>,
@@ -230,11 +231,11 @@ pub trait ElectrumLikeSync {
         let txids_to_download: Vec<&Txid> = history_txs_id.difference(&txids_raw_in_db).collect();
         if !txids_to_download.is_empty() {
             info!("got {} txs to download", txids_to_download.len());
-            txs_downloaded.extend(self.download_in_chunks(
+            txs_downloaded.extend(maybe_await!(self.download_in_chunks(
                 txids_to_download,
                 chunk_size,
                 database,
-            )?);
+            ))?);
             let mut previous_txids = HashSet::new();
             let mut txids_downloaded = HashSet::new();
             for tx in txs_downloaded.iter() {
@@ -252,11 +253,11 @@ pub trait ElectrumLikeSync {
                 "got {} previous txs to download",
                 previous_txs_to_download.len()
             );
-            txs_downloaded.extend(self.download_in_chunks(
+            txs_downloaded.extend(maybe_await!(self.download_in_chunks(
                 previous_txs_to_download,
                 chunk_size,
                 database,
-            )?);
+            ))?);
         } else {
             debug!("No tx to download");
         }
@@ -264,6 +265,7 @@ pub trait ElectrumLikeSync {
     }
 
     /// download headers at heights in `txid_height` if tx details not already present, returns a map Txid -> timestamp
+    #[maybe_async]
     fn download_needed_headers(
         &self,
         txid_height: &HashMap<Txid, Option<u32>>,
@@ -306,6 +308,7 @@ pub trait ElectrumLikeSync {
         Ok(txid_timestamp)
     }
 
+    #[maybe_async]
     fn download_in_chunks<D: BatchDatabase>(
         &self,
         to_download: Vec<&Txid>,
