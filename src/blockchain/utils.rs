@@ -228,7 +228,8 @@ pub trait ElectrumLikeSync {
             let mut txids_downloaded = HashSet::new();
             for tx in txs_downloaded.iter() {
                 txids_downloaded.insert(tx.txid());
-                for input in tx.input.iter() {
+                for input in tx.input.iter().filter(|i| !i.previous_output.is_null()) {
+                    // skip coinbase inputs
                     previous_txids.insert(input.previous_output.txid);
                 }
             }

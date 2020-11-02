@@ -447,7 +447,7 @@ pub fn bdk_blockchain_tests(attr: TokenStream, item: TokenStream) -> TokenStream
                     assert_eq!(wallet.get_balance().unwrap(), details.received);
 
                     let (new_psbt, new_details) = wallet.bump_fee(&details.txid, TxBuilder::new().fee_rate(FeeRate::from_sat_per_vb(5.0))).unwrap();
-                    dbg!(new_details);
+                    dbg!(&new_details);
                     let (new_psbt, finalized) = wallet.sign(new_psbt, None).unwrap();
                     assert!(finalized, "Cannot finalize transaction");
                     wallet.broadcast(new_psbt.extract_tx()).unwrap();
