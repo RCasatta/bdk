@@ -517,8 +517,8 @@ pub fn bdk_blockchain_tests(attr: TokenStream, item: TokenStream) -> TokenStream
                     wallet.broadcast(new_psbt.extract_tx()).unwrap();
                     wallet.sync(noop_progress(), None).unwrap();
                     assert_eq!(new_details.sent, 75_000);
-                    assert_eq!(wallet.get_balance().unwrap(), 0);
-                    assert_eq!(new_details.received, 0);
+                    assert_eq!(wallet.get_balance().unwrap(), 0, "balance wrong");
+                    assert_eq!(new_details.received, 0, "received wrong");
                 }
 
                 #[test]

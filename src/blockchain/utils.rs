@@ -283,8 +283,8 @@ pub trait ElectrumLikeSync {
 
             for (txid, height_opt) in needed_txid_height {
                 if let Some(height) = height_opt {
-                    txid_timestamp.insert(txid.clone(), *height_timestamp.get(height).unwrap());
-                    // TODO check unwrap
+                    let timestamp = height_timestamp.get(height).expect("timestamp missing");
+                    txid_timestamp.insert(txid.clone(), *timestamp);
                 }
             }
         } else {
@@ -323,7 +323,10 @@ fn save_transaction_details_and_utxos<D: BatchDatabase>(
     updates: &mut dyn BatchOperations,
     utxo_deps: &HashMap<OutPoint, UTXO>,
 ) -> Result<(), Error> {
-    let tx = database.get_raw_tx(txid).unwrap().unwrap(); // TODO everything is in db, but handle errors
+    let tx = database
+        .get_raw_tx(txid)
+        .expect("db error")
+        .expect("non error"); // TODO everything is in db, but handle errors
 
     let mut incoming: u64 = 0;
     let mut outgoing: u64 = 0;
@@ -347,7 +350,9 @@ fn save_transaction_details_and_utxos<D: BatchDatabase>(
             }
         } else {
             // The input is not ours, but we still need to count it for the fees
-            let tx = database.get_raw_tx(&input.previous_output.txid)?.unwrap(); // TODO safe
+            let tx = database
+                .get_raw_tx(&input.previous_output.txid)?
+                .expect("previous tx missing"); // TODO safe
             inputs_sum += tx.output[input.previous_output.vout as usize].value;
         }
     }
@@ -406,7 +411,9 @@ fn utxos_deps(
 ) -> HashMap<OutPoint, UTXO> {
     let mut utxos_deps = HashMap::new();
     for utxo in utxos {
-        let from_tx = tx_raw_in_db.get(&utxo.outpoint.txid).unwrap();
+        let from_tx = tx_raw_in_db
+            .get(&utxo.outpoint.txid)
+            .expect("cannot find from_tx");
         for input in from_tx.input.iter() {
             utxos_deps.insert(input.previous_output.clone(), utxo.clone());
         }
@@ -424,10 +431,12 @@ mod test {
     #[test]
     fn test_derive_10000() {
         let secp = Secp256k1::new();
-        let sk = ExtendedPrivKey::new_master(Network::Testnet, &[1u8; 32]).unwrap();
+        let sk = ExtendedPrivKey::new_master(Network::Testnet, &[1u8; 32]).expect("very unlucky");
         let pk = ExtendedPubKey::from_private(&secp, &sk);
         for i in 0..10_000 {
-            let _ = pk.derive_pub(&secp, &vec![ChildNumber::from(i)]).unwrap();
+            let _ = pk
+                .derive_pub(&secp, &vec![ChildNumber::from(i)])
+                .expect("10_000<2^31");
         }
     }
 
