@@ -148,7 +148,8 @@ pub trait ElectrumLikeSync {
 
         // get db status
         let txs_details_in_db: HashMap<Txid, TransactionDetails> = database
-            .iter_txs(false)?.into_iter()
+            .iter_txs(false)?
+            .into_iter()
             .map(|tx| (tx.txid, tx))
             .collect();
         let txs_raw_in_db: HashMap<Txid, Transaction> = database
@@ -371,7 +372,6 @@ fn save_transaction_details_and_utxos<D: BatchDatabase>(
         if let Some(utxo) = utxo_deps.get(&input.previous_output) {
             updates.del_utxo(&utxo.outpoint)?;
         }
-
     }
 
     for (i, output) in tx.output.iter().enumerate() {
