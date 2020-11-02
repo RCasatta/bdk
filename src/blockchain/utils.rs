@@ -150,21 +150,34 @@ pub trait ElectrumLikeSync {
         // get db status
         let tx_details_in_db = database.iter_txs(false)?;
         let txids_details_in_db = HashSet::from_iter(tx_details_in_db.iter().map(|tx| tx.txid));
-        let tx_raw_in_db = database.iter_raw_txs()?;
-        let txids_raw_in_db = HashSet::from_iter(tx_raw_in_db.iter().map(|tx| tx.txid()));
+        let tx_raw_in_db: HashMap<Txid, Transaction> = database
+            .iter_raw_txs()?
+            .into_iter()
+            .map(|tx| (tx.txid(), tx))
+            .collect();
+        let txids_raw_in_db = tx_raw_in_db.keys().cloned().collect();
+        let utxos_in_db = database.iter_utxos()?;
+        let utxos_deps = utxos_deps(&utxos_in_db, &tx_raw_in_db);
 
         // download new txs and headers
         let new_txs =
             self.download_needed_raw_txs(&history_txs_id, &txids_raw_in_db, chunk_size, database)?;
         let new_timestamps =
-            self.download_needed_headers(&txid_height, &txids_details_in_db, chunk_size)?;  //TODO should download not only if tx detail not exist but also the ones that have 0 as timestamp or
+            self.download_needed_headers(&txid_height, &txids_details_in_db, chunk_size)?; //TODO should download not only if tx detail not exist but also the ones that have 0 as timestamp or
 
         // save any tx details not in db but in history_txs_id
         let mut batch = database.begin_batch();
         for txid in history_txs_id.difference(&txids_details_in_db) {
             let timestamp = *new_timestamps.get(txid).unwrap_or(&0u64);
             let height = txid_height.get(txid).unwrap_or(&None).clone();
-            save_transaction_details_and_utxos(txid, database, timestamp, height, &mut batch)?;
+            save_transaction_details_and_utxos(
+                txid,
+                database,
+                timestamp,
+                height,
+                &mut batch,
+                &utxos_deps,
+            )?;
         }
         database.commit_batch(batch)?;
 
@@ -178,6 +191,7 @@ pub trait ElectrumLikeSync {
         database.commit_batch(batch)?;
 
         // remove any spent utxo
+        // TODO remove RBF or replaced
         let mut batch = database.begin_batch();
         for new_tx in new_txs.iter() {
             for input in new_tx.input.iter() {
@@ -185,6 +199,8 @@ pub trait ElectrumLikeSync {
             }
         }
         database.commit_batch(batch)?;
+
+        // TODO remove any conflicting utxo
 
         info!("finish setup, elapsed {:?}ms", start.elapsed().as_millis());
 
@@ -203,7 +219,11 @@ pub trait ElectrumLikeSync {
         let txids_to_download: Vec<&Txid> = history_txs_id.difference(&txids_in_db).collect();
         if !txids_to_download.is_empty() {
             info!("got {} txs to download", txids_to_download.len());
-            txs_downloaded.extend(self.download_in_chunks(txids_to_download, chunk_size, database)?);
+            txs_downloaded.extend(self.download_in_chunks(
+                txids_to_download,
+                chunk_size,
+                database,
+            )?);
             let mut previous_txids = HashSet::new();
             let mut txids_downloaded = HashSet::new();
             for tx in txs_downloaded.iter() {
@@ -216,8 +236,15 @@ pub trait ElectrumLikeSync {
                 txids_downloaded.union(&txids_in_db).cloned().collect();
             let previous_txs_to_download: Vec<&Txid> =
                 previous_txids.difference(&already_present).collect();
-            info!("got {} previous txs to download", previous_txs_to_download.len());
-            txs_downloaded.extend(self.download_in_chunks(previous_txs_to_download, chunk_size, database)?);
+            info!(
+                "got {} previous txs to download",
+                previous_txs_to_download.len()
+            );
+            txs_downloaded.extend(self.download_in_chunks(
+                previous_txs_to_download,
+                chunk_size,
+                database,
+            )?);
         } else {
             debug!("No tx to download");
         }
@@ -239,7 +266,10 @@ pub trait ElectrumLikeSync {
             .collect();
         let needed_heights: Vec<u32> = needed_txid_height.iter().filter_map(|(_, b)| **b).collect();
         if !needed_heights.is_empty() {
-            info!("got {} headers to download for tx timestamp", needed_heights.len());
+            info!(
+                "got {} headers to download for tx timestamp",
+                needed_heights.len()
+            );
             let mut height_timestamp: HashMap<u32, u64> = HashMap::new();
             for chunk in ChunksIterator::new(needed_heights.into_iter(), chunk_size) {
                 let call_result: Vec<BlockHeader> =
@@ -250,7 +280,6 @@ pub trait ElectrumLikeSync {
                     .collect();
                 height_timestamp.extend(vec);
             }
-
 
             for (txid, height_opt) in needed_txid_height {
                 if let Some(height) = height_opt {
@@ -292,6 +321,7 @@ fn save_transaction_details_and_utxos<D: BatchDatabase>(
     timestamp: u64,
     height: Option<u32>,
     updates: &mut dyn BatchOperations,
+    utxo_deps: &HashMap<OutPoint, UTXO>,
 ) -> Result<(), Error> {
     let tx = database.get_raw_tx(txid).unwrap().unwrap(); // TODO everything is in db, but handle errors
 
@@ -336,6 +366,13 @@ fn save_transaction_details_and_utxos<D: BatchDatabase>(
                 txout: output.clone(),
                 is_internal: script_type.is_internal(),
             })?;
+
+            // removes conflicting UTXO (generate from same inputs, like for example RBF)
+            for input in tx.input.iter() {
+                if let Some(utxo) = utxo_deps.get(&input.previous_output) {
+                    updates.del_utxo(&utxo.outpoint)?;
+                }
+            }
             incoming += output.value;
         }
     }
@@ -362,12 +399,27 @@ fn find_max_index(vec: &Vec<Vec<ELSGetHistoryRes>>) -> Option<u32> {
         .max()
 }
 
+/// returns utxo dependency as the inputs needed for the utxo to exist
+fn utxos_deps(
+    utxos: &Vec<UTXO>,
+    tx_raw_in_db: &HashMap<Txid, Transaction>,
+) -> HashMap<OutPoint, UTXO> {
+    let mut utxos_deps = HashMap::new();
+    for utxo in utxos {
+        let from_tx = tx_raw_in_db.get(&utxo.outpoint.txid).unwrap();
+        for input in from_tx.input.iter() {
+            utxos_deps.insert(input.previous_output.clone(), utxo.clone());
+        }
+    }
+    utxos_deps
+}
+
 #[cfg(test)]
 mod test {
     use crate::blockchain::utils::{find_max_index, ELSGetHistoryRes};
-    use bitcoin::{Txid, Network};
-    use bitcoin::util::bip32::{ExtendedPrivKey, ExtendedPubKey, ChildNumber};
     use bitcoin::secp256k1::Secp256k1;
+    use bitcoin::util::bip32::{ChildNumber, ExtendedPrivKey, ExtendedPubKey};
+    use bitcoin::{Network, Txid};
 
     #[test]
     fn test_derive_10000() {
@@ -375,7 +427,7 @@ mod test {
         let sk = ExtendedPrivKey::new_master(Network::Testnet, &[1u8; 32]).unwrap();
         let pk = ExtendedPubKey::from_private(&secp, &sk);
         for i in 0..10_000 {
-            let _ = pk.derive_pub(&secp,&vec![ChildNumber::from(i)]).unwrap();
+            let _ = pk.derive_pub(&secp, &vec![ChildNumber::from(i)]).unwrap();
         }
     }
 
