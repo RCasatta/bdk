@@ -36,7 +36,6 @@ use crate::types::{ScriptType, TransactionDetails, UTXO};
 use crate::wallet::utils::ChunksIterator;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
-use std::iter::FromIterator;
 use std::time::Instant;
 
 #[derive(Debug)]
@@ -148,36 +147,47 @@ pub trait ElectrumLikeSync {
         }
 
         // get db status
-        let tx_details_in_db = database.iter_txs(false)?;
-        let txids_details_in_db = HashSet::from_iter(tx_details_in_db.iter().map(|tx| tx.txid));
-        let tx_raw_in_db: HashMap<Txid, Transaction> = database
+        let txs_details_in_db: HashMap<Txid, TransactionDetails> = database
+            .iter_txs(false)?.into_iter()
+            .map(|tx| (tx.txid, tx))
+            .collect();
+        let txs_raw_in_db: HashMap<Txid, Transaction> = database
             .iter_raw_txs()?
             .into_iter()
             .map(|tx| (tx.txid(), tx))
             .collect();
-        let txids_raw_in_db = tx_raw_in_db.keys().cloned().collect();
         let utxos_in_db = database.iter_utxos()?;
-        let utxos_deps = utxos_deps(&utxos_in_db, &tx_raw_in_db);
+        let utxos_deps = utxos_deps(&utxos_in_db, &txs_raw_in_db);
 
         // download new txs and headers
         let new_txs =
-            self.download_needed_raw_txs(&history_txs_id, &txids_raw_in_db, chunk_size, database)?;
+            self.download_needed_raw_txs(&history_txs_id, &txs_raw_in_db, chunk_size, database)?;
         let new_timestamps =
-            self.download_needed_headers(&txid_height, &txids_details_in_db, chunk_size)?; //TODO should download not only if tx detail not exist but also the ones that have 0 as timestamp or
+            self.download_needed_headers(&txid_height, &txs_details_in_db, chunk_size)?; //TODO should download not only if tx detail not exist but also the ones that have 0 as timestamp or
 
-        // save any tx details not in db but in history_txs_id
+        // save any tx details not in db but in history_txs_id or with different height/timestamp
         let mut batch = database.begin_batch();
-        for txid in history_txs_id.difference(&txids_details_in_db) {
-            let timestamp = *new_timestamps.get(txid).unwrap_or(&0u64);
+        for txid in history_txs_id.iter() {
             let height = txid_height.get(txid).unwrap_or(&None).clone();
-            save_transaction_details_and_utxos(
-                txid,
-                database,
-                timestamp,
-                height,
-                &mut batch,
-                &utxos_deps,
-            )?;
+            let timestamp = *new_timestamps.get(txid).unwrap_or(&0u64);
+            if let Some(tx_details) = txs_details_in_db.get(txid) {
+                // check if height matches
+                if tx_details.height != height {
+                    let mut new_tx_details = tx_details.clone();
+                    new_tx_details.height = height;
+                    new_tx_details.timestamp = timestamp;
+                    batch.set_tx(&new_tx_details)?;
+                }
+            } else {
+                save_transaction_details_and_utxos(
+                    &txid,
+                    database,
+                    timestamp,
+                    height,
+                    &mut batch,
+                    &utxos_deps,
+                )?;
+            }
         }
         database.commit_batch(batch)?;
 
@@ -210,12 +220,13 @@ pub trait ElectrumLikeSync {
     fn download_needed_raw_txs<D: BatchDatabase>(
         &self,
         history_txs_id: &HashSet<Txid>,
-        txids_in_db: &HashSet<Txid>,
+        txs_raw_in_db: &HashMap<Txid, Transaction>,
         chunk_size: usize,
         database: &mut D,
     ) -> Result<Vec<Transaction>, Error> {
         let mut txs_downloaded = vec![];
-        let txids_to_download: Vec<&Txid> = history_txs_id.difference(&txids_in_db).collect();
+        let txids_raw_in_db: HashSet<Txid> = txs_raw_in_db.keys().cloned().collect();
+        let txids_to_download: Vec<&Txid> = history_txs_id.difference(&txids_raw_in_db).collect();
         if !txids_to_download.is_empty() {
             info!("got {} txs to download", txids_to_download.len());
             txs_downloaded.extend(self.download_in_chunks(
@@ -233,7 +244,7 @@ pub trait ElectrumLikeSync {
                 }
             }
             let already_present: HashSet<Txid> =
-                txids_downloaded.union(&txids_in_db).cloned().collect();
+                txids_downloaded.union(&txids_raw_in_db).cloned().collect();
             let previous_txs_to_download: Vec<&Txid> =
                 previous_txids.difference(&already_present).collect();
             info!(
@@ -255,14 +266,14 @@ pub trait ElectrumLikeSync {
     fn download_needed_headers(
         &self,
         txid_height: &HashMap<Txid, Option<u32>>,
-        txid_details_in_db: &HashSet<Txid>,
+        txs_details_in_db: &HashMap<Txid, TransactionDetails>,
         chunk_size: usize,
     ) -> Result<HashMap<Txid, u64>, Error> {
         let mut txid_timestamp = HashMap::new();
 
         let needed_txid_height: HashMap<&Txid, &Option<u32>> = txid_height
             .iter()
-            .filter(|(txid, _)| !txid_details_in_db.contains(*txid))
+            .filter(|(txid, _)| txs_details_in_db.get(*txid).is_none())
             .collect();
         let needed_heights: Vec<u32> = needed_txid_height.iter().filter_map(|(_, b)| **b).collect();
         if !needed_heights.is_empty() {
