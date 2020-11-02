@@ -33,7 +33,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ScriptType {
     External = 0,
-    Internal = 1,
+    Internal = 1, // change
 }
 
 impl ScriptType {
