@@ -271,7 +271,8 @@ pub trait ElectrumLikeSync {
             .iter()
             .filter(|(txid, _)| txs_details_in_db.get(*txid).is_none())
             .collect();
-        let mut needed_heights: Vec<u32> = needed_txid_height.iter().filter_map(|(_, b)| **b).collect();
+        let mut needed_heights: Vec<u32> =
+            needed_txid_height.iter().filter_map(|(_, b)| **b).collect();
         needed_heights.sort();
         needed_heights.dedup();
         if !needed_heights.is_empty() {
