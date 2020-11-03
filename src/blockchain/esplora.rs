@@ -163,7 +163,7 @@ impl UrlClient {
     }
 
     async fn _get_tx_no_opt(&self, txid: &Txid) -> Result<Transaction, EsploraError> {
-        match await_or_block!(self._get_tx(txid)) {
+        match self._get_tx(txid).await {
             Ok(Some(tx)) => Ok(tx),
             Ok(None) => Err(EsploraError::TransactionNotFound(*txid)),
             Err(e) => Err(e),
