@@ -152,8 +152,7 @@ pub trait ElectrumLikeSync {
             .into_iter()
             .map(|tx| (tx.txid(), tx))
             .collect();
-        let utxos_in_db = database.iter_utxos()?;
-        let utxos_deps = utxos_deps(&utxos_in_db, &txs_raw_in_db);
+        let utxos_deps = utxos_deps(database, &txs_raw_in_db)?;
 
         // download new txs and headers
         let new_txs = maybe_await!(self.download_needed_raw_txs(
@@ -418,18 +417,20 @@ fn find_max_index(vec: &[Vec<ELSGetHistoryRes>]) -> Option<u32> {
 }
 
 /// returns utxo dependency as the inputs needed for the utxo to exist
-fn utxos_deps(
-    utxos: &[UTXO],
+/// `tx_raw_in_db` must contains utxo's generating txs or errors witt [crate::Error::TransactionNotFound]
+fn utxos_deps<D: BatchDatabase>(
+    database: &mut D,
     tx_raw_in_db: &HashMap<Txid, Transaction>,
-) -> HashMap<OutPoint, UTXO> {
+) -> Result<HashMap<OutPoint, UTXO>, Error> {
+    let utxos = database.iter_utxos()?;
     let mut utxos_deps = HashMap::new();
     for utxo in utxos {
         let from_tx = tx_raw_in_db
             .get(&utxo.outpoint.txid)
-            .expect("cannot find from_tx");
+            .ok_or_else(|| Error::TransactionNotFound )?;
         for input in from_tx.input.iter() {
             utxos_deps.insert(input.previous_output, utxo.clone());
         }
     }
-    utxos_deps
+    Ok(utxos_deps)
 }
