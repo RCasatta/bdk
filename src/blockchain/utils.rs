@@ -215,8 +215,6 @@ pub trait ElectrumLikeSync {
         }
         db.commit_batch(batch)?;
 
-        // TODO remove any conflicting utxo
-
         info!("finish setup, elapsed {:?}ms", start.elapsed().as_millis());
 
         Ok(())
@@ -300,7 +298,9 @@ pub trait ElectrumLikeSync {
 
             for (txid, height_opt) in needed_txid_height {
                 if let Some(height) = height_opt {
-                    let timestamp = height_timestamp.get(height).expect("timestamp missing");
+                    let timestamp = height_timestamp
+                        .get(height)
+                        .ok_or_else(|| Error::Generic("timestamp missing".to_string()));
                     txid_timestamp.insert(*txid, *timestamp);
                 }
             }
@@ -340,7 +340,9 @@ fn save_transaction_details_and_utxos<D: BatchDatabase>(
     updates: &mut dyn BatchOperations,
     utxo_deps: &HashMap<OutPoint, UTXO>,
 ) -> Result<(), Error> {
-    let tx = db.get_raw_tx(txid).expect("db error").expect("non error"); // TODO everything is in db, but handle errors
+    let tx = db
+        .get_raw_tx(txid)?
+        .ok_or_else(|| Error::TransactionNotFound)?;
 
     let mut incoming: u64 = 0;
     let mut outgoing: u64 = 0;
@@ -366,7 +368,7 @@ fn save_transaction_details_and_utxos<D: BatchDatabase>(
             // The input is not ours, but we still need to count it for the fees
             let tx = db
                 .get_raw_tx(&input.previous_output.txid)?
-                .expect("previous tx missing"); // TODO safe
+                .ok_or_else(|| Error::TransactionNotFound)?;
             inputs_sum += tx.output[input.previous_output.vout as usize].value;
         }
 
