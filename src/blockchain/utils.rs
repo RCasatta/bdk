@@ -81,7 +81,7 @@ pub trait ElectrumLikeSync {
     fn electrum_like_setup<D: BatchDatabase, P: Progress>(
         &self,
         stop_gap: Option<usize>,
-        database: &mut D,
+        db: &mut D,
         _progress_update: P,
     ) -> Result<(), Error> {
         // TODO: progress
@@ -100,9 +100,7 @@ pub trait ElectrumLikeSync {
         wallet_chains.shuffle(&mut thread_rng());
         // download history of our internal and external script_pubkeys
         for script_type in wallet_chains.iter() {
-            let script_iter = database
-                .iter_script_pubkeys(Some(*script_type))?
-                .into_iter();
+            let script_iter = db.iter_script_pubkeys(Some(*script_type))?.into_iter();
 
             for (i, chunk) in ChunksIterator::new(script_iter, stop_gap).enumerate() {
                 // TODO if i == last, should create another chunk of addresses in db
@@ -137,29 +135,29 @@ pub trait ElectrumLikeSync {
         info!("max indexes are: {:?}", max_index);
         for script_type in wallet_chains.iter() {
             if let Some(index) = max_index.get(script_type) {
-                database.set_last_index(*script_type, *index)?;
+                db.set_last_index(*script_type, *index)?;
             }
         }
 
         // get db status
-        let txs_details_in_db: HashMap<Txid, TransactionDetails> = database
+        let txs_details_in_db: HashMap<Txid, TransactionDetails> = db
             .iter_txs(false)?
             .into_iter()
             .map(|tx| (tx.txid, tx))
             .collect();
-        let txs_raw_in_db: HashMap<Txid, Transaction> = database
+        let txs_raw_in_db: HashMap<Txid, Transaction> = db
             .iter_raw_txs()?
             .into_iter()
             .map(|tx| (tx.txid(), tx))
             .collect();
-        let utxos_deps = utxos_deps(database, &txs_raw_in_db)?;
+        let utxos_deps = utxos_deps(db, &txs_raw_in_db)?;
 
         // download new txs and headers
         let new_txs = maybe_await!(self.download_needed_raw_txs(
             &history_txs_id,
             &txs_raw_in_db,
             chunk_size,
-            database
+            db
         ))?;
         let new_timestamps = maybe_await!(self.download_needed_headers(
             &txid_height,
@@ -168,7 +166,7 @@ pub trait ElectrumLikeSync {
         ))?;
 
         // save any tx details not in db but in history_txs_id or with different height/timestamp
-        let mut batch = database.begin_batch();
+        let mut batch = db.begin_batch();
         for txid in history_txs_id.iter() {
             let height = *txid_height.get(txid).unwrap_or(&None);
             let timestamp = *new_timestamps.get(txid).unwrap_or(&0u64);
@@ -183,7 +181,7 @@ pub trait ElectrumLikeSync {
             } else {
                 save_transaction_details_and_utxos(
                     &txid,
-                    database,
+                    db,
                     timestamp,
                     height,
                     &mut batch,
@@ -191,25 +189,25 @@ pub trait ElectrumLikeSync {
                 )?;
             }
         }
-        database.commit_batch(batch)?;
+        db.commit_batch(batch)?;
 
         // remove any tx details in db but not in history_txs_id
-        let mut batch = database.begin_batch();
-        for tx_details in database.iter_txs(false)? {
+        let mut batch = db.begin_batch();
+        for tx_details in db.iter_txs(false)? {
             if !history_txs_id.contains(&tx_details.txid) {
                 batch.del_tx(&tx_details.txid, false)?;
             }
         }
-        database.commit_batch(batch)?;
+        db.commit_batch(batch)?;
 
         // remove any spent utxo
-        let mut batch = database.begin_batch();
+        let mut batch = db.begin_batch();
         for new_tx in new_txs.iter() {
             for input in new_tx.input.iter() {
                 batch.del_utxo(&input.previous_output)?;
             }
         }
-        database.commit_batch(batch)?;
+        db.commit_batch(batch)?;
 
         // TODO remove any conflicting utxo
 
@@ -224,7 +222,7 @@ pub trait ElectrumLikeSync {
         history_txs_id: &HashSet<Txid>,
         txs_raw_in_db: &HashMap<Txid, Transaction>,
         chunk_size: usize,
-        database: &mut D,
+        db: &mut D,
     ) -> Result<Vec<Transaction>, Error> {
         let mut txs_downloaded = vec![];
         let txids_raw_in_db: HashSet<Txid> = txs_raw_in_db.keys().cloned().collect();
@@ -234,7 +232,7 @@ pub trait ElectrumLikeSync {
             txs_downloaded.extend(maybe_await!(self.download_in_chunks(
                 txids_to_download,
                 chunk_size,
-                database,
+                db,
             ))?);
             let mut previous_txids = HashSet::new();
             let mut txids_downloaded = HashSet::new();
@@ -256,7 +254,7 @@ pub trait ElectrumLikeSync {
             txs_downloaded.extend(maybe_await!(self.download_in_chunks(
                 previous_txs_to_download,
                 chunk_size,
-                database,
+                db,
             ))?);
         } else {
             debug!("No tx to download");
@@ -311,17 +309,17 @@ pub trait ElectrumLikeSync {
         &self,
         to_download: Vec<&Txid>,
         chunk_size: usize,
-        database: &mut D,
+        db: &mut D,
     ) -> Result<Vec<Transaction>, Error> {
         let mut txs_downloaded = vec![];
         for chunk in ChunksIterator::new(to_download.into_iter(), chunk_size) {
             let call_result: Vec<Transaction> =
                 maybe_await!(self.els_batch_transaction_get(chunk))?;
-            let mut batch = database.begin_batch();
+            let mut batch = db.begin_batch();
             for new_tx in call_result.iter() {
                 batch.set_raw_tx(new_tx)?;
             }
-            database.commit_batch(batch)?;
+            db.commit_batch(batch)?;
             txs_downloaded.extend(call_result);
         }
         Ok(txs_downloaded)
@@ -330,16 +328,13 @@ pub trait ElectrumLikeSync {
 
 fn save_transaction_details_and_utxos<D: BatchDatabase>(
     txid: &Txid,
-    database: &mut D,
+    db: &mut D,
     timestamp: u64,
     height: Option<u32>,
     updates: &mut dyn BatchOperations,
     utxo_deps: &HashMap<OutPoint, UTXO>,
 ) -> Result<(), Error> {
-    let tx = database
-        .get_raw_tx(txid)
-        .expect("db error")
-        .expect("non error"); // TODO everything is in db, but handle errors
+    let tx = db.get_raw_tx(txid).expect("db error").expect("non error"); // TODO everything is in db, but handle errors
 
     let mut incoming: u64 = 0;
     let mut outgoing: u64 = 0;
@@ -355,15 +350,15 @@ fn save_transaction_details_and_utxos<D: BatchDatabase>(
         }
 
         // We already downloaded all previous output txs in the previous step
-        if let Some(previous_output) = database.get_previous_output(&input.previous_output)? {
+        if let Some(previous_output) = db.get_previous_output(&input.previous_output)? {
             inputs_sum += previous_output.value;
 
-            if database.is_mine(&previous_output.script_pubkey)? {
+            if db.is_mine(&previous_output.script_pubkey)? {
                 outgoing += previous_output.value;
             }
         } else {
             // The input is not ours, but we still need to count it for the fees
-            let tx = database
+            let tx = db
                 .get_raw_tx(&input.previous_output.txid)?
                 .expect("previous tx missing"); // TODO safe
             inputs_sum += tx.output[input.previous_output.vout as usize].value;
@@ -381,7 +376,7 @@ fn save_transaction_details_and_utxos<D: BatchDatabase>(
 
         // this output is ours, we have a path to derive it
         if let Some((script_type, _child)) =
-            database.get_path_from_script_pubkey(&output.script_pubkey)?
+            db.get_path_from_script_pubkey(&output.script_pubkey)?
         {
             debug!("{} output #{} is mine, adding utxo", txid, i);
             updates.set_utxo(&UTXO {
@@ -419,15 +414,15 @@ fn find_max_index(vec: &[Vec<ELSGetHistoryRes>]) -> Option<u32> {
 /// returns utxo dependency as the inputs needed for the utxo to exist
 /// `tx_raw_in_db` must contains utxo's generating txs or errors witt [crate::Error::TransactionNotFound]
 fn utxos_deps<D: BatchDatabase>(
-    database: &mut D,
+    db: &mut D,
     tx_raw_in_db: &HashMap<Txid, Transaction>,
 ) -> Result<HashMap<OutPoint, UTXO>, Error> {
-    let utxos = database.iter_utxos()?;
+    let utxos = db.iter_utxos()?;
     let mut utxos_deps = HashMap::new();
     for utxo in utxos {
         let from_tx = tx_raw_in_db
             .get(&utxo.outpoint.txid)
-            .ok_or_else(|| Error::TransactionNotFound )?;
+            .ok_or_else(|| Error::TransactionNotFound)?;
         for input in from_tx.input.iter() {
             utxos_deps.insert(input.previous_output, utxo.clone());
         }
