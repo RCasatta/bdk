@@ -29,7 +29,7 @@ use std::sync::Arc;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
-use clap::AppSettings;
+use clap::{AppSettings, ArgMatches};
 
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, LevelFilter};
@@ -37,11 +37,13 @@ use log::{debug, error, info, trace, LevelFilter};
 use bitcoin::Network;
 
 use bdk::bitcoin;
-use bdk::blockchain::{ConfigurableBlockchain, EsploraBlockchain};
+use bdk::blockchain::ConfigurableBlockchain;
 use bdk::cli;
 use bdk::sled;
 use bdk::Wallet;
-use bdk::blockchain::esplora::EsploraBlockchainConfig;
+
+use sled::Tree;
+
 
 fn prepare_home_dir() -> PathBuf {
     let mut dir = PathBuf::new();
@@ -89,18 +91,7 @@ fn main() {
         .unwrap();
     debug!("database opened successfully");
 
-    let blockchain_config = EsploraBlockchainConfig {
-        base_url: matches.value_of("server").unwrap().to_string(),
-    };
-    let wallet = Wallet::new(
-        descriptor,
-        change_descriptor,
-        network,
-        tree,
-        EsploraBlockchain::from_config(&blockchain_config).unwrap(),
-    )
-    .unwrap();
-    let wallet = Arc::new(wallet);
+    let wallet = Arc::new(get_wallet(&matches, descriptor, change_descriptor,network, tree));
 
     if let Some(_sub_matches) = matches.subcommand_matches("repl") {
         let mut rl = Editor::<()>::new();
@@ -143,3 +134,33 @@ fn main() {
         println!("{}", serde_json::to_string_pretty(&result).unwrap());
     }
 }
+
+#[cfg(feature = "esplora")]
+fn get_wallet(matches: &ArgMatches, descriptor: &str, change_descriptor: Option<&str>, network: Network, tree: Tree) -> Wallet<bdk::blockchain::EsploraBlockchain, Tree> {
+    let blockchain_config = bdk::blockchain::esplora::EsploraBlockchainConfig {
+        base_url: matches.value_of("esplora").unwrap().to_string()
+    };
+    Wallet::new(
+        descriptor,
+        change_descriptor,
+        network,
+        tree,
+        bdk::blockchain::EsploraBlockchain::from_config(&blockchain_config).unwrap(),
+    ).unwrap()
+}
+
+#[cfg(feature = "electrum")]
+fn get_wallet(matches: &ArgMatches, descriptor: &str, change_descriptor: Option<&str>, network: Network, tree: Tree) -> Wallet<bdk::blockchain::ElectrumBlockchain, Tree> {
+    let blockchain_config = bdk::blockchain::ElectrumBlockchainConfig {
+        url: matches.value_of("server").unwrap().to_string(),
+        socks5: matches.value_of("proxy").map(ToString::to_string),
+    };
+    Wallet::new(
+        descriptor,
+        change_descriptor,
+        network,
+        tree,
+        bdk::blockchain::ElectrumBlockchain::from_config(&blockchain_config).unwrap(),
+    ).unwrap()
+}
+
