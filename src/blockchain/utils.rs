@@ -93,7 +93,7 @@ pub trait ElectrumLikeSync {
 
         let mut history_txs_id = HashSet::new();
         let mut txid_height = HashMap::new();
-        let mut max_index = HashMap::new();
+        let mut max_indexes = HashMap::new();
 
         let mut wallet_chains = vec![ScriptType::Internal, ScriptType::External];
         // shuffling improve privacy, the server doesn't know my first request is from my internal or external addresses
@@ -106,8 +106,14 @@ pub trait ElectrumLikeSync {
                 // TODO if i == last, should create another chunk of addresses in db
                 let call_result: Vec<Vec<ELSGetHistoryRes>> =
                     maybe_await!(self.els_batch_script_get_history(chunk.iter()))?;
-                if let Some(max) = find_max_index(&call_result) {
-                    max_index.insert(script_type, max + (i * chunk_size) as u32);
+                let max_index = call_result
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, v)| !v.is_empty())
+                    .map(|(i, _)| i as u32)
+                    .max();
+                if let Some(max) = max_index {
+                    max_indexes.insert(script_type, max + (i * chunk_size) as u32);
                 }
                 let flattened: Vec<ELSGetHistoryRes> = call_result.into_iter().flatten().collect();
                 debug!("#{} of {:?} results:{}", i, script_type, flattened.len());
@@ -132,9 +138,9 @@ pub trait ElectrumLikeSync {
         }
 
         // saving max indexes
-        info!("max indexes are: {:?}", max_index);
+        info!("max indexes are: {:?}", max_indexes);
         for script_type in wallet_chains.iter() {
-            if let Some(index) = max_index.get(script_type) {
+            if let Some(index) = max_indexes.get(script_type) {
                 db.set_last_index(*script_type, *index)?;
             }
         }
@@ -401,14 +407,6 @@ fn save_transaction_details_and_utxos<D: BatchDatabase>(
     updates.set_tx(&tx_details)?;
 
     Ok(())
-}
-
-fn find_max_index(vec: &[Vec<ELSGetHistoryRes>]) -> Option<u32> {
-    vec.iter()
-        .enumerate()
-        .filter(|(_, v)| !v.is_empty())
-        .map(|(i, _)| i as u32)
-        .max()
 }
 
 /// returns utxo dependency as the inputs needed for the utxo to exist
