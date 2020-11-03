@@ -159,7 +159,7 @@ pub trait ElectrumLikeSync {
         let utxos_deps = utxos_deps(db, &txs_raw_in_db)?;
 
         // download new txs and headers
-        let new_txs = maybe_await!(self.download_needed_raw_txs(
+        let new_txs = maybe_await!(self.download_and_save_needed_raw_txs(
             &history_txs_id,
             &txs_raw_in_db,
             chunk_size,
@@ -171,13 +171,14 @@ pub trait ElectrumLikeSync {
             chunk_size
         ))?;
 
-        // save any tx details not in db but in history_txs_id or with different height/timestamp
         let mut batch = db.begin_batch();
+
+        // save any tx details not in db but in history_txs_id or with different height/timestamp
         for txid in history_txs_id.iter() {
             let height = *txid_height.get(txid).unwrap_or(&None);
             let timestamp = *new_timestamps.get(txid).unwrap_or(&0u64);
             if let Some(tx_details) = txs_details_in_db.get(txid) {
-                // check if height matches
+                // check if height matches, otherwise updates it
                 if tx_details.height != height {
                     let mut new_tx_details = tx_details.clone();
                     new_tx_details.height = height;
@@ -195,33 +196,29 @@ pub trait ElectrumLikeSync {
                 )?;
             }
         }
-        db.commit_batch(batch)?;
 
         // remove any tx details in db but not in history_txs_id
-        let mut batch = db.begin_batch();
-        for tx_details in db.iter_txs(false)? {
-            if !history_txs_id.contains(&tx_details.txid) {
-                batch.del_tx(&tx_details.txid, false)?;
+        for txid in txs_details_in_db.keys() {
+            if !history_txs_id.contains(txid) {
+                batch.del_tx(&txid, false)?;
             }
         }
-        db.commit_batch(batch)?;
 
         // remove any spent utxo
-        let mut batch = db.begin_batch();
         for new_tx in new_txs.iter() {
             for input in new_tx.input.iter() {
                 batch.del_utxo(&input.previous_output)?;
             }
         }
-        db.commit_batch(batch)?;
 
+        db.commit_batch(batch)?;
         info!("finish setup, elapsed {:?}ms", start.elapsed().as_millis());
 
         Ok(())
     }
 
     /// download txs identified by `history_txs_id` and theirs previous outputs if not already present in db
-    fn download_needed_raw_txs<D: BatchDatabase>(
+    fn download_and_save_needed_raw_txs<D: BatchDatabase>(
         &self,
         history_txs_id: &HashSet<Txid>,
         txs_raw_in_db: &HashMap<Txid, Transaction>,
@@ -233,36 +230,32 @@ pub trait ElectrumLikeSync {
         let txids_to_download: Vec<&Txid> = history_txs_id.difference(&txids_raw_in_db).collect();
         if !txids_to_download.is_empty() {
             info!("got {} txs to download", txids_to_download.len());
-            txs_downloaded.extend(maybe_await!(self.download_in_chunks(
+            txs_downloaded.extend(maybe_await!(self.download_and_save_in_chunks(
                 txids_to_download,
                 chunk_size,
                 db,
             ))?);
-            let mut previous_txids = HashSet::new();
+            let mut prev_txids = HashSet::new();
             let mut txids_downloaded = HashSet::new();
             for tx in txs_downloaded.iter() {
                 txids_downloaded.insert(tx.txid());
+                // add every previous input tx, but skip coinbase
                 for input in tx.input.iter().filter(|i| !i.previous_output.is_null()) {
-                    // skip coinbase inputs
-                    previous_txids.insert(input.previous_output.txid);
+                    prev_txids.insert(input.previous_output.txid);
                 }
             }
             let already_present: HashSet<Txid> =
                 txids_downloaded.union(&txids_raw_in_db).cloned().collect();
-            let previous_txs_to_download: Vec<&Txid> =
-                previous_txids.difference(&already_present).collect();
-            info!(
-                "got {} previous txs to download",
-                previous_txs_to_download.len()
-            );
-            txs_downloaded.extend(maybe_await!(self.download_in_chunks(
-                previous_txs_to_download,
+            let prev_txs_to_download: Vec<&Txid> =
+                prev_txids.difference(&already_present).collect();
+            info!("{} previous txs to download", prev_txs_to_download.len());
+            txs_downloaded.extend(maybe_await!(self.download_and_save_in_chunks(
+                prev_txs_to_download,
                 chunk_size,
                 db,
             ))?);
-        } else {
-            debug!("No tx to download");
         }
+
         Ok(txs_downloaded)
     }
 
@@ -274,17 +267,13 @@ pub trait ElectrumLikeSync {
         chunk_size: usize,
     ) -> Result<HashMap<Txid, u64>, Error> {
         let mut txid_timestamp = HashMap::new();
-
         let needed_txid_height: HashMap<&Txid, &Option<u32>> = txid_height
             .iter()
             .filter(|(txid, _)| txs_details_in_db.get(*txid).is_none())
             .collect();
         let needed_heights: Vec<u32> = needed_txid_height.iter().filter_map(|(_, b)| **b).collect();
         if !needed_heights.is_empty() {
-            info!(
-                "got {} headers to download for tx timestamp",
-                needed_heights.len()
-            );
+            info!("{} headers to download for timestamp", needed_heights.len());
             let mut height_timestamp: HashMap<u32, u64> = HashMap::new();
             for chunk in ChunksIterator::new(needed_heights.into_iter(), chunk_size) {
                 let call_result: Vec<BlockHeader> =
@@ -295,23 +284,20 @@ pub trait ElectrumLikeSync {
                     .collect();
                 height_timestamp.extend(vec);
             }
-
             for (txid, height_opt) in needed_txid_height {
                 if let Some(height) = height_opt {
                     let timestamp = height_timestamp
                         .get(height)
-                        .ok_or_else(|| Error::Generic("timestamp missing".to_string()));
+                        .ok_or_else(|| Error::Generic("timestamp missing".to_string()))?;
                     txid_timestamp.insert(*txid, *timestamp);
                 }
             }
-        } else {
-            debug!("No headers to download for tx timestamp");
         }
 
         Ok(txid_timestamp)
     }
 
-    fn download_in_chunks<D: BatchDatabase>(
+    fn download_and_save_in_chunks<D: BatchDatabase>(
         &self,
         to_download: Vec<&Txid>,
         chunk_size: usize,
@@ -328,6 +314,7 @@ pub trait ElectrumLikeSync {
             db.commit_batch(batch)?;
             txs_downloaded.extend(call_result);
         }
+
         Ok(txs_downloaded)
     }
 }
