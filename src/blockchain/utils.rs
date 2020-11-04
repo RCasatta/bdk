@@ -44,13 +44,6 @@ pub struct ELSGetHistoryRes {
     pub tx_hash: Txid,
 }
 
-#[derive(Debug)]
-pub struct ELSListUnspentRes {
-    pub height: usize,
-    pub tx_hash: Txid,
-    pub tx_pos: usize,
-}
-
 /// Implements the synchronization logic for an Electrum-like client.
 #[maybe_async]
 pub trait ElectrumLikeSync {
@@ -58,11 +51,6 @@ pub trait ElectrumLikeSync {
         &self,
         scripts: I,
     ) -> Result<Vec<Vec<ELSGetHistoryRes>>, Error>;
-
-    fn els_batch_script_list_unspent<'s, I: IntoIterator<Item = &'s Script>>(
-        &self,
-        scripts: I,
-    ) -> Result<Vec<Vec<ELSListUnspentRes>>, Error>;
 
     fn els_batch_transaction_get<'s, I: IntoIterator<Item = &'s Txid>>(
         &self,
@@ -73,8 +61,6 @@ pub trait ElectrumLikeSync {
         &self,
         heights: I,
     ) -> Result<Vec<BlockHeader>, Error>;
-
-    fn els_transaction_get(&self, txid: &Txid) -> Result<Transaction, Error>;
 
     // Provided methods down here...
 

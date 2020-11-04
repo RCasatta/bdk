@@ -38,7 +38,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
-use futures::stream::{self, StreamExt, TryStreamExt, FuturesOrdered};
+use futures::stream::{self, FuturesOrdered, StreamExt, TryStreamExt};
 
 #[allow(unused_imports)]
 use log::{debug, error, info, trace};
@@ -52,13 +52,13 @@ use bitcoin::hashes::hex::{FromHex, ToHex};
 use bitcoin::hashes::{sha256, Hash};
 use bitcoin::{BlockHash, BlockHeader, Script, Transaction, TxMerkleNode, Txid};
 
-use self::utils::{ELSGetHistoryRes, ELSListUnspentRes, ElectrumLikeSync};
+use self::utils::{ELSGetHistoryRes, ElectrumLikeSync};
 use super::*;
 use crate::database::BatchDatabase;
 use crate::error::Error;
+use crate::wallet::utils::ChunksIterator;
 use crate::FeeRate;
 use std::convert::TryInto;
-use crate::wallet::utils::ChunksIterator;
 
 const CONCURRENT: usize = 4;
 
@@ -286,31 +286,6 @@ impl UrlClient {
         Ok(result)
     }
 
-    async fn _script_list_unspent(
-        &self,
-        script: &Script,
-    ) -> Result<Vec<ELSListUnspentRes>, EsploraError> {
-        Ok(self
-            .client
-            .get(&format!(
-                "{}/scripthash/{}/utxo",
-                self.url,
-                Self::script_to_scripthash(script)
-            ))
-            .send()
-            .await?
-            .error_for_status()?
-            .json::<Vec<EsploraListUnspent>>()
-            .await?
-            .into_iter()
-            .map(|x| ELSListUnspentRes {
-                tx_hash: x.txid,
-                height: x.status.block_height.unwrap_or(0),
-                tx_pos: x.vout,
-            })
-            .collect())
-    }
-
     async fn _get_fee_estimates(&self) -> Result<HashMap<String, f64>, EsploraError> {
         Ok(self
             .client
@@ -340,20 +315,6 @@ impl ElectrumLikeSync for UrlClient {
                 results.extend(partial_results);
             }
             Ok(stream::iter(results).collect().await)
-        };
-
-        await_or_block!(future)
-    }
-
-    fn els_batch_script_list_unspent<'s, I: IntoIterator<Item = &'s Script>>(
-        &self,
-        scripts: I,
-    ) -> Result<Vec<Vec<ELSListUnspentRes>>, Error> {
-        let future = async {
-            Ok(stream::iter(scripts)
-                .then(|script| self._script_list_unspent(&script))
-                .try_collect()
-                .await?)
         };
 
         await_or_block!(future)
@@ -398,11 +359,6 @@ impl ElectrumLikeSync for UrlClient {
 
         await_or_block!(future)
     }
-
-    fn els_transaction_get(&self, txid: &Txid) -> Result<Transaction, Error> {
-        Ok(await_or_block!(self._get_tx(txid))?
-            .ok_or_else(|| EsploraError::TransactionNotFound(*txid))?)
-    }
 }
 
 #[derive(Deserialize)]
@@ -413,13 +369,6 @@ struct EsploraGetHistoryStatus {
 #[derive(Deserialize)]
 struct EsploraGetHistory {
     txid: Txid,
-    status: EsploraGetHistoryStatus,
-}
-
-#[derive(Deserialize)]
-struct EsploraListUnspent {
-    txid: Txid,
-    vout: usize,
     status: EsploraGetHistoryStatus,
 }
 
