@@ -109,47 +109,32 @@ impl std::default::Default for FeePolicy {
 }
 
 // Unfortunately derive doesn't work with `PhantomData`: https://github.com/rust-lang/rust/issues/26925
-impl<D: Database, Cs: CoinSelectionAlgorithm<D>, Ctx: TxBuilderContext> Default
-    for TxBuilder<D, Cs, Ctx>
-where
-    Cs: Default,
+impl<D: Database, Ctx: TxBuilderContext> Default
+    for TxBuilder<D, DefaultCoinSelectionAlgorithm, Ctx>
 {
     fn default() -> Self {
-        TxBuilder {
-            recipients: Default::default(),
-            drain_wallet: Default::default(),
-            single_recipient: Default::default(),
-            fee_policy: Default::default(),
-            internal_policy_path: Default::default(),
-            external_policy_path: Default::default(),
-            utxos: Default::default(),
-            unspendable: Default::default(),
-            manually_selected_only: Default::default(),
-            sighash: Default::default(),
-            ordering: Default::default(),
-            locktime: Default::default(),
-            rbf: Default::default(),
-            version: Default::default(),
-            change_policy: Default::default(),
-            force_non_witness_utxo: Default::default(),
-            add_global_xpubs: Default::default(),
-            coin_selection: Default::default(),
-            include_output_redeem_witness_script: Default::default(),
-
-            phantom: PhantomData,
-        }
+        Self::_default()
     }
+
 }
 
-// methods supported by both contexts, but only for `DefaultCoinSelectionAlgorithm`
 impl<D: Database, Ctx: TxBuilderContext> TxBuilder<D, DefaultCoinSelectionAlgorithm, Ctx> {
     /// Create an empty builder
-    pub fn new() -> Self {
+    pub fn new() -> Self
+    {
         Self::default()
     }
+    fn _default() -> Self
+    {
+        println!("a");
+        TxBuilder {
+            phantom: PhantomData,
+            ..Default::default()
+        }
+    }
+
 }
 
-// methods supported by both contexts, for any CoinSelectionAlgorithm
 impl<D: Database, Cs: CoinSelectionAlgorithm<D>, Ctx: TxBuilderContext> TxBuilder<D, Cs, Ctx> {
     /// Set a custom fee rate
     pub fn fee_rate(mut self, fee_rate: FeeRate) -> Self {
