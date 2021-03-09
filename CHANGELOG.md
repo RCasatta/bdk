@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - [v0.3.0]
 
+### Descriptor
+#### Added
+- Added ability to analyze a `PSBT` to check which and how many signatures are already available 
+
 ### Keys
 #### Changed
 - Renamed `DerivableKey::add_metadata()` to `DerivableKey::into_descriptor_key()`
