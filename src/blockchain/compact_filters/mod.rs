@@ -61,7 +61,7 @@ use log::{debug, error, info, trace};
 use bitcoin::network::message_blockdata::Inventory;
 use bitcoin::{Network, OutPoint, Transaction, Txid};
 
-use rocksdb::{Options, SliceTransform, DB};
+use rocksdb::{Db, Options, SliceTransform};
 
 mod peer;
 mod store;
@@ -118,8 +118,8 @@ impl CompactFiltersBlockchain {
 
         let network = peers[0].get_network();
 
-        let cfs = DB::list_cf(&opts, &storage_dir).unwrap_or_else(|_| vec!["default".to_string()]);
-        let db = DB::open_cf(&opts, &storage_dir, &cfs)?;
+        let cfs = Db::list_cf(&opts, &storage_dir).unwrap_or_else(|_| vec!["default".to_string()]);
+        let db = Db::open_cf(&opts, &storage_dir, &cfs)?;
         let headers = Arc::new(ChainStore::new(db, network)?);
 
         // try to recover partial snapshots
@@ -237,7 +237,7 @@ impl Blockchain for CompactFiltersBlockchain {
 
         let skip_blocks = self.skip_blocks.unwrap_or(0);
 
-        let cf_sync = Arc::new(CFSync::new(Arc::clone(&self.headers), skip_blocks, 0x00)?);
+        let cf_sync = Arc::new(CfSync::new(Arc::clone(&self.headers), skip_blocks, 0x00)?);
 
         let initial_height = self.headers.get_height()?;
         let total_bundles = (first_peer.get_version().start_height as usize)
@@ -537,11 +537,11 @@ pub enum CompactFiltersError {
     NoPeers,
 
     /// Internal database error
-    DB(rocksdb::Error),
+    Db(rocksdb::Error),
     /// Internal I/O error
-    IO(std::io::Error),
+    Io(std::io::Error),
     /// Invalid BIP158 filter
-    BIP158(bitcoin::util::bip158::Error),
+    Bip158(bitcoin::util::bip158::Error),
     /// Internal system time error
     Time(std::time::SystemTimeError),
 

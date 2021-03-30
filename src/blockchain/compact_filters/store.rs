@@ -20,7 +20,7 @@ use std::sync::RwLock;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 
-use rocksdb::{Direction, IteratorMode, ReadOptions, WriteBatch, DB};
+use rocksdb::{Db, Direction, IteratorMode, ReadOptions, WriteBatch};
 
 use bitcoin::consensus::{deserialize, encode::VarInt, serialize, Decodable, Encodable};
 use bitcoin::hash_types::{FilterHash, FilterHeader};
@@ -120,7 +120,7 @@ impl Encodable for BundleStatus {
             BundleStatus::Init => {
                 written += 0x00u8.consensus_encode(&mut e)?;
             }
-            BundleStatus::CFHeaders { cf_headers } => {
+            BundleStatus::CfHeaders { cf_headers } => {
                 written += 0x01u8.consensus_encode(&mut e)?;
                 written += VarInt(cf_headers.len() as u64).consensus_encode(&mut e)?;
                 for header in cf_headers {
@@ -171,7 +171,7 @@ impl Decodable for BundleStatus {
                     cf_headers.push(FilterHeader::consensus_decode(&mut d)?);
                 }
 
-                Ok(BundleStatus::CFHeaders { cf_headers })
+                Ok(BundleStatus::CfHeaders { cf_headers })
             }
             0x02 => {
                 let num = VarInt::consensus_decode(&mut d)?;
@@ -215,7 +215,7 @@ impl Decodable for BundleStatus {
 }
 
 pub struct ChainStore<T: StoreType> {
-    store: Arc<RwLock<DB>>,
+    store: Arc<RwLock<Db>>,
     cf_name: String,
     min_height: usize,
     network: Network,
@@ -223,7 +223,7 @@ pub struct ChainStore<T: StoreType> {
 }
 
 impl ChainStore<Full> {
-    pub fn new(store: DB, network: Network) -> Result<Self, CompactFiltersError> {
+    pub fn new(store: Db, network: Network) -> Result<Self, CompactFiltersError> {
         let genesis = match network {
             Network::Bitcoin => MAINNET_GENESIS.deref(),
             Network::Testnet => TESTNET_GENESIS.deref(),
@@ -623,26 +623,26 @@ impl<T: StoreType> fmt::Debug for ChainStore<T> {
 
 pub enum BundleStatus {
     Init,
-    CFHeaders { cf_headers: Vec<FilterHeader> },
+    CfHeaders { cf_headers: Vec<FilterHeader> },
     CFilters { cf_filters: Vec<Vec<u8>> },
     Processed { cf_filters: Vec<Vec<u8>> },
     Tip { cf_filters: Vec<Vec<u8>> },
     Pruned,
 }
 
-pub struct CFStore {
-    store: Arc<RwLock<DB>>,
+pub struct CfStore {
+    store: Arc<RwLock<Db>>,
     filter_type: u8,
 }
 
 type BundleEntry = (BundleStatus, FilterHeader);
 
-impl CFStore {
+impl CfStore {
     pub fn new(
         headers_store: &ChainStore<Full>,
         filter_type: u8,
     ) -> Result<Self, CompactFiltersError> {
-        let cf_store = CFStore {
+        let cf_store = CfStore {
             store: Arc::clone(&headers_store.store),
             filter_type,
         };
@@ -782,7 +782,7 @@ impl CFStore {
         }
 
         let key = StoreEntry::CFilterTable((self.filter_type, Some(bundle))).get_key();
-        let value = (BundleStatus::CFHeaders { cf_headers }, checkpoint);
+        let value = (BundleStatus::CfHeaders { cf_headers }, checkpoint);
 
         read_store.put(key, value.serialize())?;
 
