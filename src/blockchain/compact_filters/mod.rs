@@ -118,8 +118,8 @@ impl CompactFiltersBlockchain {
 
         let network = peers[0].get_network();
 
-        let cfs = Db::list_cf(&opts, &storage_dir).unwrap_or_else(|_| vec!["default".to_string()]);
-        let db = Db::open_cf(&opts, &storage_dir, &cfs)?;
+        let cfs = DB::list_cf(&opts, &storage_dir).unwrap_or_else(|_| vec!["default".to_string()]);
+        let db = DB::open_cf(&opts, &storage_dir, &cfs)?;
         let headers = Arc::new(ChainStore::new(db, network)?);
 
         // try to recover partial snapshots
@@ -557,9 +557,9 @@ impl fmt::Display for CompactFiltersError {
 
 impl std::error::Error for CompactFiltersError {}
 
-impl_error!(rocksdb::Error, DB, CompactFiltersError);
-impl_error!(std::io::Error, IO, CompactFiltersError);
-impl_error!(bitcoin::util::bip158::Error, BIP158, CompactFiltersError);
+impl_error!(rocksdb::Error, Db, CompactFiltersError);
+impl_error!(std::io::Error, Io, CompactFiltersError);
+impl_error!(bitcoin::util::bip158::Error, Bip158, CompactFiltersError);
 impl_error!(std::time::SystemTimeError, Time, CompactFiltersError);
 
 impl From<crate::error::Error> for CompactFiltersError {
