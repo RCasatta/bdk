@@ -20,7 +20,7 @@ use std::sync::RwLock;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 
-use rocksdb::{Db, Direction, IteratorMode, ReadOptions, WriteBatch};
+use rocksdb::{DB, Direction, IteratorMode, ReadOptions, WriteBatch};
 
 use bitcoin::consensus::{deserialize, encode::VarInt, serialize, Decodable, Encodable};
 use bitcoin::hash_types::{FilterHash, FilterHeader};
@@ -215,7 +215,7 @@ impl Decodable for BundleStatus {
 }
 
 pub struct ChainStore<T: StoreType> {
-    store: Arc<RwLock<Db>>,
+    store: Arc<RwLock<DB>>,
     cf_name: String,
     min_height: usize,
     network: Network,
@@ -223,7 +223,7 @@ pub struct ChainStore<T: StoreType> {
 }
 
 impl ChainStore<Full> {
-    pub fn new(store: Db, network: Network) -> Result<Self, CompactFiltersError> {
+    pub fn new(store: DB, network: Network) -> Result<Self, CompactFiltersError> {
         let genesis = match network {
             Network::Bitcoin => MAINNET_GENESIS.deref(),
             Network::Testnet => TESTNET_GENESIS.deref(),
@@ -631,7 +631,7 @@ pub enum BundleStatus {
 }
 
 pub struct CfStore {
-    store: Arc<RwLock<Db>>,
+    store: Arc<RwLock<DB>>,
     filter_type: u8,
 }
 

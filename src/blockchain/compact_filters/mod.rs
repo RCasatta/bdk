@@ -61,7 +61,7 @@ use log::{debug, error, info, trace};
 use bitcoin::network::message_blockdata::Inventory;
 use bitcoin::{Network, OutPoint, Transaction, Txid};
 
-use rocksdb::{Db, Options, SliceTransform};
+use rocksdb::{DB, Options, SliceTransform};
 
 mod peer;
 mod store;
