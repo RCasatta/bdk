@@ -1,0 +1,24 @@
+name: Upstream
+
+on:
+  push:
+  schedule:
+    - cron: '0 0 * * *' # Once per day
+
+jobs:
+
+  bitcoin_master:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: Patch
+        run: |
+         echo -e "\n[patch.crates-io]\nbitcoin = { git =\"https://github.com/rust-bitcoin/rust-bitcoin\", branch=\"master\" }" >> Cargo.toml
+      - uses: actions-rs/cargo@v1
+        with:
+          command: build
+
