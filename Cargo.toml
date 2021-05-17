@@ -23,6 +23,7 @@ rand = "^0.7"
 # Optional dependencies
 sled = { version = "0.34", optional = true }
 electrum-client = { version = "0.7", optional = true }
+bitcoincore-rpc = { version = "0.13.0", optional = true }
 reqwest = { version = "0.11", optional = true, features = ["json"] }
 futures = { version = "0.3", optional = true }
 async-trait = { version = "0.1", optional = true }
@@ -52,6 +53,8 @@ key-value-db = ["sled"]
 async-interface = ["async-trait"]
 all-keys = ["keys-bip39"]
 keys-bip39 = ["tiny-bip39"]
+rpc = ["bitcoincore-rpc"]
+
 
 # Debug/Test features
 debug-proc-macros = ["bdk-macros/debug", "bdk-testutils-macros/debug"]
@@ -66,6 +69,7 @@ lazy_static = "1.4"
 env_logger = "0.7"
 base64 = "^0.11"
 clap = "2.33"
+bitcoind = "0.4.0"
 
 [[example]]
 name = "address_validator"

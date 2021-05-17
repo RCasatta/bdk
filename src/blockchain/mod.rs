@@ -52,6 +52,10 @@ pub use self::esplora::EsploraBlockchain;
 #[cfg(feature = "compact_filters")]
 #[cfg_attr(docsrs, doc(cfg(feature = "compact_filters")))]
 pub mod compact_filters;
+
+#[cfg(feature = "rpc")]
+pub mod rpc;
+
 #[cfg(feature = "compact_filters")]
 pub use self::compact_filters::CompactFiltersBlockchain;
 

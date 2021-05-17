@@ -11,6 +11,7 @@
 
 use std::fmt;
 
+use crate::bitcoin::Network;
 use crate::{descriptor, wallet, wallet::address_validator};
 use bitcoin::OutPoint;
 
@@ -64,6 +65,8 @@ pub enum Error {
         /// Required fee absolute value (satoshi)
         required: u64,
     },
+    /// Node doesn't have data to estimate a fee rate
+    FeeRateUnavailable,
     /// In order to use the [`TxBuilder::add_global_xpubs`] option every extended
     /// key in the descriptor must either be a master key itself (having depth = 0) or have an
     /// explicit origin provided
@@ -80,13 +83,17 @@ pub enum Error {
     InvalidPolicyPathError(crate::descriptor::policy::PolicyError),
     /// Signing error
     Signer(crate::wallet::signer::SignerError),
-
+    /// Invalid network
+    InvalidNetwork { requested: Network, found: Network },
     /// Progress value must be between `0.0` (included) and `100.0` (included)
     InvalidProgressValue(f32),
     /// Progress update error (maybe the channel has been closed)
     ProgressUpdateError,
     /// Requested outpoint doesn't exist in the tx (vout greater than available outputs)
     InvalidOutpoint(OutPoint),
+
+    /// Wallet on the bitcoin node don't exist
+    RpcWalletDoesntExist,
 
     /// Error related to the parsing and usage of descriptors
     Descriptor(crate::descriptor::error::Error),
@@ -126,6 +133,9 @@ pub enum Error {
     #[cfg(feature = "key-value-db")]
     /// Sled database error
     Sled(sled::Error),
+    #[cfg(feature = "rpc")]
+    /// Rpc client error
+    Rpc(bitcoincore_rpc::Error),
 }
 
 impl fmt::Display for Error {
@@ -179,6 +189,8 @@ impl_error!(electrum_client::Error, Electrum);
 impl_error!(crate::blockchain::esplora::EsploraError, Esplora);
 #[cfg(feature = "key-value-db")]
 impl_error!(sled::Error, Sled);
+#[cfg(feature = "rpc")]
+impl_error!(bitcoincore_rpc::Error, Rpc);
 
 #[cfg(feature = "compact_filters")]
 impl From<crate::blockchain::compact_filters::CompactFiltersError> for Error {
