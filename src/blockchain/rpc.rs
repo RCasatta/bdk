@@ -303,7 +303,6 @@ impl ConfigurableBlockchain for RpcBlockchain {
     }
 }
 
-
 /// Deterministically generate a unique name given the descriptors defining the wallet
 pub fn wallet_name_from_descriptor<T>(
     descriptor: T,
@@ -311,15 +310,23 @@ pub fn wallet_name_from_descriptor<T>(
     network: Network,
     secp: &SecpCtx,
 ) -> Result<String, Error>
-    where
-        T: IntoWalletDescriptor,
+where
+    T: IntoWalletDescriptor,
 {
     //TODO check descriptors contains only public keys
-    let descriptor = descriptor.into_wallet_descriptor(&secp, network)?.0.to_string();
+    let descriptor = descriptor
+        .into_wallet_descriptor(&secp, network)?
+        .0
+        .to_string();
     let mut wallet_name = get_checksum(&descriptor[..descriptor.find('#').unwrap()])?;
     if let Some(change_descriptor) = change_descriptor {
-        let change_descriptor = change_descriptor.into_wallet_descriptor(&secp, network)?.0.to_string();
-        wallet_name.push_str(get_checksum(&change_descriptor[..change_descriptor.find('#').unwrap()])?.as_str());
+        let change_descriptor = change_descriptor
+            .into_wallet_descriptor(&secp, network)?
+            .0
+            .to_string();
+        wallet_name.push_str(
+            get_checksum(&change_descriptor[..change_descriptor.find('#').unwrap()])?.as_str(),
+        );
     }
 
     Ok(wallet_name)
@@ -340,7 +347,6 @@ fn list_wallet_dir(client: &Client) -> Result<Vec<String>, Error> {
     let result: Result = client.call("listwalletdir", &[])?;
     Ok(result.wallets.into_iter().map(|n| n.name).collect())
 }
-
 
 #[cfg(test)]
 #[cfg(feature = "test-rpc")]
@@ -400,7 +406,7 @@ mod test {
             url: bitcoind.url.clone(),
             auth: Auth::CookieFile(bitcoind.cookie_file.clone()),
             network,
-            wallet_name
+            wallet_name,
         };
         RpcBlockchain::from_config(&config)
     }
