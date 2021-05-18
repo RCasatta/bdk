@@ -59,6 +59,7 @@ rpc = ["bitcoincore-rpc"]
 # Debug/Test features
 debug-proc-macros = ["bdk-macros/debug", "bdk-testutils-macros/debug"]
 test-electrum = ["electrum"]
+test-rpc = ["rpc"]
 test-md-docs = ["electrum"]
 
 [dev-dependencies]

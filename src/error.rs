@@ -88,7 +88,7 @@ pub enum Error {
         /// requested network, for example what is given as bdk-cli option
         requested: Network,
         /// found network, for example the network of the bitcoin node
-        found: Network
+        found: Network,
     },
     /// Progress value must be between `0.0` (included) and `100.0` (included)
     InvalidProgressValue(f32),
