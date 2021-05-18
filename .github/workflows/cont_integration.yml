@@ -22,6 +22,7 @@ jobs:
           - compact_filters
           - esplora,key-value-db,electrum
           - compiler
+          - rpc
     steps:
       - name: checkout
         uses: actions/checkout@v2
@@ -121,6 +122,19 @@ jobs:
         run: nohup ${{ matrix.blockchain.start }} & sleep 5
       - name: Test
         run: $HOME/.cargo/bin/cargo test --features ${{ matrix.blockchain.name }},test-blockchains --no-default-features ${{ matrix.blockchain.name }}::bdk_blockchain_tests
+
+  test-rpc:
+    name: Test rpc
+    runs-on: ubuntu-20.04
+    env:
+      BITCOIN_VER: 0.21.0
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - run: echo "BITCOIND_EXE=${{ github.workspace }}/bitcoin-${{ env.BITCOIN_VER }}/bin/bitcoind" >> $GITHUB_ENV
+      - run: curl https://bitcoincore.org/bin/bitcoin-core-$BITCOIN_VER/bitcoin-$BITCOIN_VER-x86_64-linux-gnu.tar.gz | tar -xvz bitcoin-$BITCOIN_VER/bin/bitcoind
+      - name: Test
+        run: $HOME/.cargo/bin/cargo test --features test-rpc --no-default-features
 
   check-wasm:
     name: Check WASM
