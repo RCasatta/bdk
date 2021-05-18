@@ -314,6 +314,7 @@ fn list_wallet_dir(client: &Client) -> Result<Vec<String>, Error> {
     Ok(result.wallets.into_iter().map(|n| n.name).collect())
 }
 
+#[cfg(feature = "test-rpc")]
 #[cfg(test)]
 mod test {
     use super::{RpcBlockchain, RpcConfig};
@@ -509,7 +510,7 @@ mod test {
         fn log(&self, record: &Record) {
             if let Some(path) = record.module_path() {
                 if self.enabled(record.metadata()) && path.contains("bdk") {
-                    print!("{} - {}\n", record.level(), record.args());
+                    println!("{} - {}", record.level(), record.args());
                 }
             }
         }
