@@ -15,25 +15,37 @@ use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
+/// Backend that gets blockchain data from Bitcoin Core RPC
+///
+/// Implements the [crate::blockchain::Blockchain] trait
+///
 #[derive(Debug)]
 pub struct RpcBlockchain {
+    /// Rpc client to the node, includes the wallet name
     client: Client,
+    /// Network used
     network: Network,
+    /// Blockchain capabilities, cached here at startup
     capabilities: HashSet<Capability>,
-    rpc_version: usize,
+    /// Wallet name computed as descriptor's checksum
     wallet_name: String,
-
-    // This is a fixed Address used as a key to store information on the node
+    /// This is a fixed Address used as a key to store information on the node
     satoshi_address: Address,
 }
 
+/// RpcBlockchain configuration options
 #[derive(Debug)]
 pub struct RpcConfig {
+    /// The bitcoin node url
     pub url: String,
+    /// The bitcoin node authentication mechanism
     pub auth: Auth,
+    /// The network we are using (it will be checked the bitcoin node network matches this)
     pub network: Network,
-
+    /// used to compute the checksum to be used as wallet name for the bitcoin node
+    /// (together with the checksum of `change_descriptor` if some)
     pub descriptor: ExtendedDescriptor,
+    /// used to compute the checksum to be used as part of the wallet name for the bitcoin node
     pub change_descriptor: Option<ExtendedDescriptor>,
 }
 
@@ -280,7 +292,6 @@ impl ConfigurableBlockchain for RpcBlockchain {
             client,
             network,
             capabilities,
-            rpc_version,
             wallet_name,
             satoshi_address,
         })
@@ -288,7 +299,7 @@ impl ConfigurableBlockchain for RpcBlockchain {
 }
 
 /// return the wallets available in default wallet directory
-//TODO PR to create method in bitcoincore_rpc
+//TODO use bitcoincore_rpc method when PR #179 lands
 fn list_wallet_dir(client: &Client) -> Result<Vec<String>, Error> {
     #[derive(Deserialize)]
     struct Name {
