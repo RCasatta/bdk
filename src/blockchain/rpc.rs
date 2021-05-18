@@ -17,7 +17,8 @@ use crate::bitcoin::consensus::deserialize;
 use crate::bitcoin::{Address, Network, OutPoint, Transaction, TxOut, Txid};
 use crate::blockchain::{Blockchain, Capability, ConfigurableBlockchain, Progress};
 use crate::database::BatchDatabase;
-use crate::descriptor::{get_checksum, ExtendedDescriptor};
+use crate::descriptor::{get_checksum, IntoWalletDescriptor};
+use crate::wallet::utils::SecpCtx;
 use crate::{Error, FeeRate, KeychainKind, LocalUtxo, TransactionDetails};
 use bitcoincore_rpc::json::{
     GetAddressInfoResultLabel, ImportMultiOptions, ImportMultiRequest,
@@ -54,11 +55,8 @@ pub struct RpcConfig {
     pub auth: Auth,
     /// The network we are using (it will be checked the bitcoin node network matches this)
     pub network: Network,
-    /// used to compute the checksum to be used as wallet name for the bitcoin node
-    /// (together with the checksum of `change_descriptor` if some)
-    pub descriptor: ExtendedDescriptor,
-    /// used to compute the checksum to be used as part of the wallet name for the bitcoin node
-    pub change_descriptor: Option<ExtendedDescriptor>,
+    /// The wallet name in the bitcoin node, consider using [wallet_name_from_descriptor] for this
+    pub wallet_name: String,
 }
 
 impl RpcBlockchain {
@@ -237,7 +235,6 @@ impl Blockchain for RpcBlockchain {
             .fee_rate
             .ok_or(Error::FeeRateUnavailable)?
             .as_sat() as f64;
-        dbg!(&sat_per_kb);
 
         Ok(FeeRate::from_sat_per_vb((sat_per_kb / 1000f64) as f32))
     }
@@ -249,12 +246,8 @@ impl ConfigurableBlockchain for RpcBlockchain {
     /// Returns RpcBlockchain backend creating an RPC client to a specific wallet named as the descriptor's checksum
     /// if it's the first time it creates the wallet in the node and upon return is granted the wallet is loaded
     fn from_config(config: &Self::Config) -> Result<Self, Error> {
-        //TODO check descriptors contains only public keys
-        let mut wallet_name = get_checksum(config.descriptor.to_string().as_str())?;
-        if let Some(change_descriptor) = config.change_descriptor.as_ref() {
-            wallet_name.push_str(get_checksum(change_descriptor.to_string().as_str())?.as_str());
-        }
-        let wallet_url = format!("{}/wallet/{}", config.url, wallet_name);
+        let wallet_name = config.wallet_name.clone();
+        let wallet_url = format!("{}/wallet/{}", config.url, &wallet_name);
         debug!("connecting to {} auth:{:?}", wallet_url, config.auth);
 
         let client = Client::new(wallet_url, config.auth.clone())?;
@@ -310,6 +303,28 @@ impl ConfigurableBlockchain for RpcBlockchain {
     }
 }
 
+
+/// Deterministically generate a unique name given the descriptors defining the wallet
+pub fn wallet_name_from_descriptor<T>(
+    descriptor: T,
+    change_descriptor: Option<T>,
+    network: Network,
+    secp: &SecpCtx,
+) -> Result<String, Error>
+    where
+        T: IntoWalletDescriptor,
+{
+    //TODO check descriptors contains only public keys
+    let descriptor = descriptor.into_wallet_descriptor(&secp, network)?.0.to_string();
+    let mut wallet_name = get_checksum(&descriptor[..descriptor.find('#').unwrap()])?;
+    if let Some(change_descriptor) = change_descriptor {
+        let change_descriptor = change_descriptor.into_wallet_descriptor(&secp, network)?.0.to_string();
+        wallet_name.push_str(get_checksum(&change_descriptor[..change_descriptor.find('#').unwrap()])?.as_str());
+    }
+
+    Ok(wallet_name)
+}
+
 /// return the wallets available in default wallet directory
 //TODO use bitcoincore_rpc method when PR #179 lands
 fn list_wallet_dir(client: &Client) -> Result<Vec<String>, Error> {
@@ -326,15 +341,43 @@ fn list_wallet_dir(client: &Client) -> Result<Vec<String>, Error> {
     Ok(result.wallets.into_iter().map(|n| n.name).collect())
 }
 
+
+#[cfg(test)]
+#[cfg(feature = "test-rpc")]
+#[bdk_blockchain_tests(crate)]
+fn local_rpc() -> RpcBlockchain {
+    let url = std::env::var("BDK_RPC_URL").unwrap_or_else(|_| "127.0.0.1:18443".to_string());
+    let wallet_name = std::env::var("BDK_RPC_WALLET").unwrap_or_else(|_| "bdk-test".to_string());
+
+    // TODO same code in `fn get_auth` in testutils, make it public there
+    let auth = match std::env::var("BDK_RPC_AUTH").as_ref().map(String::as_ref) {
+        Ok("USER_PASS") => Auth::UserPass(
+            std::env::var("BDK_RPC_USER").unwrap(),
+            std::env::var("BDK_RPC_PASS").unwrap(),
+        ),
+        _ => Auth::CookieFile(std::path::PathBuf::from(
+            std::env::var("BDK_RPC_COOKIEFILE")
+                .unwrap_or_else(|_| "/home/user/.bitcoin/regtest/.cookie".to_string()),
+        )),
+    };
+    let config = RpcConfig {
+        url,
+        auth,
+        network: Network::Regtest,
+        wallet_name,
+    };
+    RpcBlockchain::from_config(&config).unwrap()
+}
+
 #[cfg(feature = "test-rpc")]
 #[cfg(test)]
 mod test {
     use super::{RpcBlockchain, RpcConfig};
     use crate::bitcoin::consensus::deserialize;
     use crate::bitcoin::{Address, Amount, Network, Transaction};
+    use crate::blockchain::rpc::wallet_name_from_descriptor;
     use crate::blockchain::{noop_progress, Blockchain, Capability, ConfigurableBlockchain};
     use crate::database::MemoryDatabase;
-    use crate::descriptor::IntoWalletDescriptor;
     use crate::wallet::AddressIndex;
     use crate::Wallet;
     use bitcoin::secp256k1::Secp256k1;
@@ -351,14 +394,13 @@ mod test {
         network: Network,
     ) -> Result<RpcBlockchain, crate::Error> {
         let secp = Secp256k1::new();
-        let (desc, _) =
-            IntoWalletDescriptor::into_wallet_descriptor(desc, &secp, Network::Regtest).unwrap();
+        let wallet_name = wallet_name_from_descriptor(desc, None, network, &secp).unwrap();
+
         let config = RpcConfig {
             url: bitcoind.url.clone(),
             auth: Auth::CookieFile(bitcoind.cookie_file.clone()),
             network,
-            descriptor: desc,
-            change_descriptor: None,
+            wallet_name
         };
         RpcBlockchain::from_config(&config)
     }
@@ -479,6 +521,14 @@ mod test {
             .get_raw_mempool()
             .unwrap()
             .contains(&tx.txid()));
+    }
+
+    #[test]
+    fn test_rpc_wallet_name() {
+        let secp = Secp256k1::new();
+        let name =
+            wallet_name_from_descriptor(EXAMPLE_DESCRIPTOR, None, Network::Regtest, &secp).unwrap();
+        assert_eq!("tmg7aqay", name);
     }
 
     fn generate(bitcoind: &BitcoinD, blocks: u64) -> Address {
