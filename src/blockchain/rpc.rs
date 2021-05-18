@@ -1,3 +1,18 @@
+// Bitcoin Dev Kit
+// Written in 2021 by Riccardo Casatta <riccardo@casatta.it>
+//
+// Copyright (c) 2020-2021 Bitcoin Dev Kit Developers
+//
+// This file is licensed under the Apache License, Version 2.0 <LICENSE-APACHE
+// or http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your option.
+// You may not use this file except in accordance with one or both of these
+// licenses.
+
+//! Rpc Blockchain
+//!
+//! Backend that gets blockchain data from Bitcoin Core RPC
+//!
 use crate::bitcoin::consensus::deserialize;
 use crate::bitcoin::{Address, Network, OutPoint, Transaction, TxOut, Txid};
 use crate::blockchain::{Blockchain, Capability, ConfigurableBlockchain, Progress};
@@ -15,10 +30,7 @@ use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
-/// Backend that gets blockchain data from Bitcoin Core RPC
-///
-/// Implements the [crate::blockchain::Blockchain] trait
-///
+/// The main struct for RPC backend implementing the [crate::blockchain::Blockchain] trait
 #[derive(Debug)]
 pub struct RpcBlockchain {
     /// Rpc client to the node, includes the wallet name
@@ -135,8 +147,8 @@ impl Blockchain for RpcBlockchain {
         debug!("current_txs len {}", current_txs.len());
 
         let mut indexes = HashMap::new();
-        for keykind in vec![KeychainKind::External, KeychainKind::Internal] {
-            indexes.insert(keykind, db.get_last_index(keykind)?.unwrap_or(0));
+        for keykind in &[KeychainKind::External, KeychainKind::Internal] {
+            indexes.insert(*keykind, db.get_last_index(*keykind)?.unwrap_or(0));
         }
 
         for tx_result in current_txs {
@@ -331,9 +343,7 @@ mod test {
     use bitcoincore_rpc::RawTx;
     use bitcoincore_rpc::{Auth, RpcApi};
     use bitcoind::BitcoinD;
-    use log::{LevelFilter, Metadata, Record};
     use std::collections::HashMap;
-    use std::sync::Once;
 
     fn create_rpc(
         bitcoind: &BitcoinD,
@@ -361,7 +371,6 @@ mod test {
 
     #[test]
     fn test_rpc_wallet_setup() {
-        init_logger();
         let bitcoind = create_bitcoind(vec![]);
         let blockchain = create_rpc(&bitcoind, EXAMPLE_DESCRIPTOR, Network::Regtest).unwrap();
         let db = MemoryDatabase::new();
@@ -423,7 +432,6 @@ mod test {
 
     #[test]
     fn test_rpc_node_synced_height() {
-        init_logger();
         let bitcoind = create_bitcoind(vec![]);
         let rpc = create_rpc(&bitcoind, EXAMPLE_DESCRIPTOR, Network::Regtest).unwrap();
         let synced_height = rpc.get_node_synced_height().unwrap();
@@ -496,39 +504,5 @@ mod test {
                 None,
             )
             .unwrap()
-    }
-
-    static LOGGER: SimpleLogger = SimpleLogger;
-
-    pub struct SimpleLogger;
-
-    impl log::Log for SimpleLogger {
-        fn enabled(&self, metadata: &Metadata) -> bool {
-            metadata.level() <= log::max_level()
-        }
-
-        fn log(&self, record: &Record) {
-            if let Some(path) = record.module_path() {
-                if self.enabled(record.metadata()) && path.contains("bdk") {
-                    println!("{} - {}", record.level(), record.args());
-                }
-            }
-        }
-
-        fn flush(&self) {}
-    }
-    static INIT: Once = Once::new();
-
-    pub fn init_logger() {
-        INIT.call_once(|| {
-            let level = if cfg!(debug_assertions) {
-                LevelFilter::Debug
-            } else {
-                LevelFilter::Off
-            };
-            log::set_logger(&LOGGER)
-                .map(|()| log::set_max_level(level))
-                .expect("cannot initialize logging");
-        });
     }
 }
