@@ -353,6 +353,7 @@ fn list_wallet_dir(client: &Client) -> Result<Vec<String>, Error> {
 #[bdk_blockchain_tests(crate)]
 fn local_rpc() -> RpcBlockchain {
     let url = std::env::var("BDK_RPC_URL").unwrap_or_else(|_| "127.0.0.1:18443".to_string());
+    let url = format!("http://{}", url);
     let wallet_name = std::env::var("BDK_RPC_WALLET").unwrap_or_else(|_| "bdk-test".to_string());
 
     // TODO same code in `fn get_auth` in testutils, make it public there
