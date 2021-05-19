@@ -124,7 +124,7 @@ impl Blockchain for RpcBlockchain {
 
         //TODO if current_height == node_synced should check only the mempool
 
-        //TODO split the interval in chunk so that we can give progress update
+        //TODO if it's a big rescan, spawn a thread that checks getwalletinfo and update progress
         self.client
             .rescan_blockchain(Some(node_synced as usize), Some(current_height as usize))?;
         progress_update.update(1.0, None)?;
