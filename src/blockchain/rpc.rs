@@ -352,26 +352,13 @@ fn list_wallet_dir(client: &Client) -> Result<Vec<String>, Error> {
 #[cfg(feature = "test-rpc")]
 #[bdk_blockchain_tests(crate)]
 fn local_rpc() -> RpcBlockchain {
-    let url = std::env::var("BDK_RPC_URL").unwrap_or_else(|_| "127.0.0.1:18443".to_string());
-    let url = format!("http://{}", url);
-    let wallet_name = std::env::var("BDK_RPC_WALLET").unwrap_or_else(|_| "bdk-test".to_string());
-
-    // TODO same code in `fn get_auth` in testutils, make it public there
-    let auth = match std::env::var("BDK_RPC_AUTH").as_ref().map(String::as_ref) {
-        Ok("USER_PASS") => Auth::UserPass(
-            std::env::var("BDK_RPC_USER").unwrap(),
-            std::env::var("BDK_RPC_PASS").unwrap(),
-        ),
-        _ => Auth::CookieFile(std::path::PathBuf::from(
-            std::env::var("BDK_RPC_COOKIEFILE")
-                .unwrap_or_else(|_| "/home/user/.bitcoin/regtest/.cookie".to_string()),
-        )),
-    };
+    let exe = std::env::var("BITCOIND_EXE").unwrap();
+    let bitcoind = bitcoind::BitcoinD::new(exe).unwrap();
     let config = RpcConfig {
-        url,
-        auth,
+        url: bitcoind.url.clone(),
+        auth: Auth::CookieFile(bitcoind.cookie_file.clone()),
         network: Network::Regtest,
-        wallet_name,
+        wallet_name: "bdk-test".to_string(),
     };
     RpcBlockchain::from_config(&config).unwrap()
 }
@@ -416,15 +403,17 @@ mod test {
         bitcoind::BitcoinD::with_args(exe, args, false).unwrap()
     }
 
-    const EXAMPLE_DESCRIPTOR: &'static str = "wpkh(tpubD6NzVbkrYhZ4X2yy78HWrr1M9NT8dKeWfzNiQqDdMqqa9UmmGztGGz6TaLFGsLfdft5iu32gxq1T4eMNxExNNWzVCpf9Y6JZi5TnqoC9wJq/*)";
+    const DESCRIPTOR_PUB: &'static str = "wpkh(tpubD6NzVbkrYhZ4X2yy78HWrr1M9NT8dKeWfzNiQqDdMqqa9UmmGztGGz6TaLFGsLfdft5iu32gxq1T4eMNxExNNWzVCpf9Y6JZi5TnqoC9wJq/*)";
+    const DESCRIPTOR_PRIV: &'static str = "wpkh(tprv8ZgxMBicQKsPdZxBDUcvTSMEaLwCTzTc6gmw8KBKwa3BJzWzec4g6VUbQBHJcutDH6mMEmBeVyN27H1NF3Nu8isZ1Sts4SufWyfLE6Mf1MB/*)";
 
     #[test]
     fn test_rpc_wallet_setup() {
         let bitcoind = create_bitcoind(vec![]);
-        let blockchain = create_rpc(&bitcoind, EXAMPLE_DESCRIPTOR, Network::Regtest).unwrap();
+        let node_address = bitcoind.client.get_new_address(None, None).unwrap();
+        let blockchain = create_rpc(&bitcoind, DESCRIPTOR_PUB, Network::Regtest).unwrap();
         let db = MemoryDatabase::new();
         let wallet =
-            Wallet::new(EXAMPLE_DESCRIPTOR, None, Network::Regtest, db, blockchain).unwrap();
+            Wallet::new(DESCRIPTOR_PRIV, None, Network::Regtest, db, blockchain).unwrap();
 
         wallet.sync(noop_progress(), None).unwrap();
         generate(&bitcoind, 101);
@@ -433,26 +422,36 @@ mod test {
         send_to_address(&bitcoind, &address, 100_000);
         wallet.sync(noop_progress(), None).unwrap();
         assert_eq!(wallet.get_balance().unwrap(), 100_000);
+
+        let mut builder = wallet.build_tx();
+        builder.add_recipient(node_address.script_pubkey(), 50_000);
+        let (mut psbt, details) =  builder.finish().unwrap();
+        let finalized = wallet.sign(&mut psbt, Default::default()).unwrap();
+        assert!(finalized, "Cannot finalize transaction");
+        let tx = psbt.extract_tx();
+        wallet.broadcast(tx).unwrap();
+        wallet.sync(noop_progress(), None).unwrap();
+        assert_eq!(wallet.get_balance().unwrap(), 100_000 - 50_000 - details.fees);
     }
 
     #[test]
     fn test_rpc_from_config() {
         let bitcoind = create_bitcoind(vec![]);
-        let blockchain = create_rpc(&bitcoind, EXAMPLE_DESCRIPTOR, Network::Regtest);
+        let blockchain = create_rpc(&bitcoind, DESCRIPTOR_PUB, Network::Regtest);
         assert!(blockchain.is_ok());
-        let blockchain = create_rpc(&bitcoind, EXAMPLE_DESCRIPTOR, Network::Testnet);
+        let blockchain = create_rpc(&bitcoind, DESCRIPTOR_PUB, Network::Testnet);
         assert!(blockchain.is_err(), "wrong network doesn't error");
     }
 
     #[test]
     fn test_rpc_capabilities_get_tx() {
         let bitcoind = create_bitcoind(vec![]);
-        let rpc = create_rpc(&bitcoind, EXAMPLE_DESCRIPTOR, Network::Regtest).unwrap();
+        let rpc = create_rpc(&bitcoind, DESCRIPTOR_PUB, Network::Regtest).unwrap();
         let capabilities = rpc.get_capabilities();
         assert!(capabilities.contains(&Capability::FullHistory) && capabilities.len() == 1);
         let bitcoind_indexed = create_bitcoind(vec!["-txindex".to_string()]);
         let rpc_indexed =
-            create_rpc(&bitcoind_indexed, EXAMPLE_DESCRIPTOR, Network::Regtest).unwrap();
+            create_rpc(&bitcoind_indexed, DESCRIPTOR_PUB, Network::Regtest).unwrap();
         assert_eq!(rpc_indexed.get_capabilities().len(), 3);
         let address = generate(&bitcoind_indexed, 101);
         let txid = send_to_address(&bitcoind_indexed, &address, 100_000);
@@ -463,7 +462,7 @@ mod test {
     #[test]
     fn test_rpc_estimate_fee_get_height() {
         let bitcoind = create_bitcoind(vec![]);
-        let rpc = create_rpc(&bitcoind, EXAMPLE_DESCRIPTOR, Network::Regtest).unwrap();
+        let rpc = create_rpc(&bitcoind, DESCRIPTOR_PUB, Network::Regtest).unwrap();
         let result = rpc.estimate_fee(2);
         assert!(result.is_err());
         let address = generate(&bitcoind, 100);
@@ -482,7 +481,7 @@ mod test {
     #[test]
     fn test_rpc_node_synced_height() {
         let bitcoind = create_bitcoind(vec![]);
-        let rpc = create_rpc(&bitcoind, EXAMPLE_DESCRIPTOR, Network::Regtest).unwrap();
+        let rpc = create_rpc(&bitcoind, DESCRIPTOR_PUB, Network::Regtest).unwrap();
         let synced_height = rpc.get_node_synced_height().unwrap();
 
         assert_eq!(synced_height, 0);
@@ -495,7 +494,7 @@ mod test {
     #[test]
     fn test_rpc_broadcast() {
         let bitcoind = create_bitcoind(vec![]);
-        let rpc = create_rpc(&bitcoind, EXAMPLE_DESCRIPTOR, Network::Regtest).unwrap();
+        let rpc = create_rpc(&bitcoind, DESCRIPTOR_PUB, Network::Regtest).unwrap();
         let address = generate(&bitcoind, 101);
         let utxo = bitcoind
             .client
@@ -534,7 +533,7 @@ mod test {
     fn test_rpc_wallet_name() {
         let secp = Secp256k1::new();
         let name =
-            wallet_name_from_descriptor(EXAMPLE_DESCRIPTOR, None, Network::Regtest, &secp).unwrap();
+            wallet_name_from_descriptor(DESCRIPTOR_PUB, None, Network::Regtest, &secp).unwrap();
         assert_eq!("tmg7aqay", name);
     }
 
