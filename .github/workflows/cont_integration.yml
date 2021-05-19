@@ -133,6 +133,7 @@ jobs:
       BDK_RPC_PASS: passw
       BDK_RPC_URL: 127.0.0.1:18443
       BDK_RPC_WALLET: bdk-test
+      BDK_ELECTRUM_URL: tcp://127.0.0.1:60401
       BITCOIN_VER: 0.21.0
     steps:
       - name: Checkout
