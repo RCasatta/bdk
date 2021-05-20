@@ -44,6 +44,8 @@ pub struct RpcBlockchain {
     wallet_name: String,
     /// This is a fixed Address used as a key to store information on the node
     satoshi_address: Address,
+    /// Skip this many blocks of the blockchain at the first rescan, if None the rescan is done from the genesis block
+    skip_blocks: Option<u32>,
 }
 
 /// RpcBlockchain configuration options
@@ -57,15 +59,19 @@ pub struct RpcConfig {
     pub network: Network,
     /// The wallet name in the bitcoin node, consider using [wallet_name_from_descriptor] for this
     pub wallet_name: String,
+    /// Skip this many blocks of the blockchain at the first rescan, if None the rescan is done from the genesis block
+    pub skip_blocks: Option<u32>,
 }
 
 impl RpcBlockchain {
     fn get_node_synced_height(&self) -> Result<u32, Error> {
         let info = self.client.get_address_info(&self.satoshi_address)?;
         if let Some(GetAddressInfoResultLabel::Simple(label)) = info.labels.first() {
-            Ok(label.parse::<u32>().unwrap_or(0))
+            Ok(label
+                .parse::<u32>()
+                .unwrap_or(self.skip_blocks.unwrap_or(0)))
         } else {
-            Ok(0)
+            Ok(self.skip_blocks.unwrap_or(0))
         }
     }
 
@@ -124,7 +130,13 @@ impl Blockchain for RpcBlockchain {
 
         //TODO if current_height == node_synced should check only the mempool
 
-        //TODO if it's a big rescan, spawn a thread that checks getwalletinfo and update progress
+        //TODO if it's a big rescan, spawn a thread that checks getwalletinfo and update progress?
+        // maybe better to call rescan in chunks (updating node_synced_height) so that in case of
+        // interruption work can be partially recovered
+        debug!(
+            "rescan_blockchain from:{} to:{}",
+            node_synced, current_height
+        );
         self.client
             .rescan_blockchain(Some(node_synced as usize), Some(current_height as usize))?;
         progress_update.update(1.0, None)?;
@@ -137,7 +149,9 @@ impl Blockchain for RpcBlockchain {
         let known_utxos: HashSet<_> = db.iter_utxos()?.into_iter().collect();
 
         //TODO list_since_blocks would be more efficient
-        let current_utxo = self.client.list_unspent(Some(0), None, None, None, None)?;
+        let current_utxo = self
+            .client
+            .list_unspent(Some(0), None, None, Some(true), None)?;
         debug!("current_utxo len {}", current_utxo.len());
         let current_txs = self
             .client
@@ -299,6 +313,7 @@ impl ConfigurableBlockchain for RpcBlockchain {
             capabilities,
             wallet_name,
             satoshi_address,
+            skip_blocks: config.skip_blocks.clone(),
         })
     }
 }
@@ -359,6 +374,7 @@ fn local_rpc() -> RpcBlockchain {
         auth: Auth::CookieFile(bitcoind.cookie_file.clone()),
         network: Network::Regtest,
         wallet_name: "bdk-test".to_string(),
+        skip_blocks: None,
     };
     RpcBlockchain::from_config(&config).unwrap()
 }
@@ -395,6 +411,7 @@ mod test {
             auth: Auth::CookieFile(bitcoind.cookie_file.clone()),
             network,
             wallet_name,
+            skip_blocks: None,
         };
         RpcBlockchain::from_config(&config)
     }
@@ -412,8 +429,7 @@ mod test {
         let node_address = bitcoind.client.get_new_address(None, None).unwrap();
         let blockchain = create_rpc(&bitcoind, DESCRIPTOR_PUB, Network::Regtest).unwrap();
         let db = MemoryDatabase::new();
-        let wallet =
-            Wallet::new(DESCRIPTOR_PRIV, None, Network::Regtest, db, blockchain).unwrap();
+        let wallet = Wallet::new(DESCRIPTOR_PRIV, None, Network::Regtest, db, blockchain).unwrap();
 
         wallet.sync(noop_progress(), None).unwrap();
         generate(&bitcoind, 101);
@@ -425,13 +441,40 @@ mod test {
 
         let mut builder = wallet.build_tx();
         builder.add_recipient(node_address.script_pubkey(), 50_000);
-        let (mut psbt, details) =  builder.finish().unwrap();
+        let (mut psbt, details) = builder.finish().unwrap();
         let finalized = wallet.sign(&mut psbt, Default::default()).unwrap();
         assert!(finalized, "Cannot finalize transaction");
         let tx = psbt.extract_tx();
         wallet.broadcast(tx).unwrap();
         wallet.sync(noop_progress(), None).unwrap();
-        assert_eq!(wallet.get_balance().unwrap(), 100_000 - 50_000 - details.fees);
+        assert_eq!(
+            wallet.get_balance().unwrap(),
+            100_000 - 50_000 - details.fees
+        );
+        drop(wallet);
+
+        // test skip_blocks
+        generate(&bitcoind, 5);
+        let config = RpcConfig {
+            url: bitcoind.url.clone(),
+            auth: Auth::CookieFile(bitcoind.cookie_file.clone()),
+            network: Network::Regtest,
+            wallet_name: "another-name".to_string(),
+            skip_blocks: Some(103),
+        };
+        let blockchain_skip = RpcBlockchain::from_config(&config).unwrap();
+        let db = MemoryDatabase::new();
+        let wallet_skip =
+            Wallet::new(DESCRIPTOR_PRIV, None, Network::Regtest, db, blockchain_skip).unwrap();
+        send_to_address(&bitcoind, &address, 100_000);
+        assert_eq!(
+            "bcrt1q8dyvgt4vhr8ald4xuwewcxhdjha9a5k78wxm5t",
+            address.to_string()
+        );
+        println!("address:{}", &address);
+        generate(&bitcoind, 1); // TODO why this is needed even if list_unspent should include zero conf and unsafe?
+        wallet_skip.sync(noop_progress(), None).unwrap();
+        assert_eq!(wallet_skip.get_balance().unwrap(), 100_000);
     }
 
     #[test]
@@ -450,8 +493,7 @@ mod test {
         let capabilities = rpc.get_capabilities();
         assert!(capabilities.contains(&Capability::FullHistory) && capabilities.len() == 1);
         let bitcoind_indexed = create_bitcoind(vec!["-txindex".to_string()]);
-        let rpc_indexed =
-            create_rpc(&bitcoind_indexed, DESCRIPTOR_PUB, Network::Regtest).unwrap();
+        let rpc_indexed = create_rpc(&bitcoind_indexed, DESCRIPTOR_PUB, Network::Regtest).unwrap();
         assert_eq!(rpc_indexed.get_capabilities().len(), 3);
         let address = generate(&bitcoind_indexed, 101);
         let txid = send_to_address(&bitcoind_indexed, &address, 100_000);
