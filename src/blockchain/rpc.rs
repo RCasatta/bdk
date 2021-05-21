@@ -363,20 +363,33 @@ fn list_wallet_dir(client: &Client) -> Result<Vec<String>, Error> {
     Ok(result.wallets.into_iter().map(|n| n.name).collect())
 }
 
-#[cfg(test)]
-#[cfg(feature = "test-rpc")]
-#[bdk_blockchain_tests(crate)]
-fn local_rpc() -> RpcBlockchain {
-    let exe = std::env::var("BITCOIND_EXE").unwrap();
-    let bitcoind = bitcoind::BitcoinD::new(exe).unwrap();
-    let config = RpcConfig {
-        url: bitcoind.url.clone(),
-        auth: Auth::CookieFile(bitcoind.cookie_file.clone()),
-        network: Network::Regtest,
-        wallet_name: "bdk-test".to_string(),
-        skip_blocks: None,
-    };
-    RpcBlockchain::from_config(&config).unwrap()
+#[cfg(feature = "test-blockchains")]
+crate::bdk_blockchain_tests! {
+
+    fn test_instance() -> RpcBlockchain {
+        let url = std::env::var("BDK_RPC_URL").unwrap_or_else(|_| "127.0.0.1:18443".to_string());
+        let url = format!("http://{}", url);
+
+        // TODO same code in `fn get_auth` in testutils, make it public there
+        let auth = match std::env::var("BDK_RPC_AUTH").as_ref().map(String::as_ref) {
+            Ok("USER_PASS") => Auth::UserPass(
+                std::env::var("BDK_RPC_USER").unwrap(),
+                std::env::var("BDK_RPC_PASS").unwrap(),
+            ),
+            _ => Auth::CookieFile(std::path::PathBuf::from(
+                std::env::var("BDK_RPC_COOKIEFILE")
+                    .unwrap_or_else(|_| "/home/user/.bitcoin/regtest/.cookie".to_string()),
+            )),
+        };
+        let config = RpcConfig {
+            url,
+            auth,
+            network: Network::Regtest,
+            wallet_name: "client-wallet-test".to_string(),
+            skip_blocks: None,
+        };
+        RpcBlockchain::from_config(&config).unwrap()
+    }
 }
 
 #[cfg(feature = "test-rpc")]
@@ -417,7 +430,7 @@ mod test {
     }
     fn create_bitcoind(args: Vec<String>) -> BitcoinD {
         let exe = std::env::var("BITCOIND_EXE").unwrap();
-        bitcoind::BitcoinD::with_args(exe, args, false).unwrap()
+        bitcoind::BitcoinD::with_args(exe, args, false, bitcoind::P2P::No).unwrap()
     }
 
     const DESCRIPTOR_PUB: &'static str = "wpkh(tpubD6NzVbkrYhZ4X2yy78HWrr1M9NT8dKeWfzNiQqDdMqqa9UmmGztGGz6TaLFGsLfdft5iu32gxq1T4eMNxExNNWzVCpf9Y6JZi5TnqoC9wJq/*)";
@@ -425,6 +438,7 @@ mod test {
 
     #[test]
     fn test_rpc_wallet_setup() {
+        env_logger::try_init().unwrap();
         let bitcoind = create_bitcoind(vec![]);
         let node_address = bitcoind.client.get_new_address(None, None).unwrap();
         let blockchain = create_rpc(&bitcoind, DESCRIPTOR_PUB, Network::Regtest).unwrap();
@@ -435,6 +449,8 @@ mod test {
         generate(&bitcoind, 101);
         wallet.sync(noop_progress(), None).unwrap();
         let address = wallet.get_address(AddressIndex::New).unwrap();
+        let expected_address = "bcrt1q8dyvgt4vhr8ald4xuwewcxhdjha9a5k78wxm5t";
+        assert_eq!(expected_address, address.to_string());
         send_to_address(&bitcoind, &address, 100_000);
         wallet.sync(noop_progress(), None).unwrap();
         assert_eq!(wallet.get_balance().unwrap(), 100_000);
@@ -467,11 +483,6 @@ mod test {
         let wallet_skip =
             Wallet::new(DESCRIPTOR_PRIV, None, Network::Regtest, db, blockchain_skip).unwrap();
         send_to_address(&bitcoind, &address, 100_000);
-        assert_eq!(
-            "bcrt1q8dyvgt4vhr8ald4xuwewcxhdjha9a5k78wxm5t",
-            address.to_string()
-        );
-        println!("address:{}", &address);
         generate(&bitcoind, 1); // TODO why this is needed even if list_unspent should include zero conf and unsafe?
         wallet_skip.sync(noop_progress(), None).unwrap();
         assert_eq!(wallet_skip.get_balance().unwrap(), 100_000);
