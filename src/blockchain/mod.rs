@@ -43,6 +43,11 @@ pub use self::electrum::ElectrumBlockchain;
 #[cfg(feature = "electrum")]
 pub use self::electrum::ElectrumBlockchainConfig;
 
+#[cfg(feature = "rpc")]
+pub use self::rpc::RpcBlockchain;
+#[cfg(feature = "rpc")]
+pub use self::rpc::RpcConfig;
+
 #[cfg(feature = "esplora")]
 #[cfg_attr(docsrs, doc(cfg(feature = "esplora")))]
 pub mod esplora;
