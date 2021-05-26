@@ -69,7 +69,7 @@ impl RpcBlockchain {
         if let Some(GetAddressInfoResultLabel::Simple(label)) = info.labels.first() {
             Ok(label
                 .parse::<u32>()
-                .unwrap_or(self.skip_blocks.unwrap_or(0)))
+                .unwrap_or_else(|_| self.skip_blocks.unwrap_or(0)))
         } else {
             Ok(self.skip_blocks.unwrap_or(0))
         }
@@ -313,7 +313,7 @@ impl ConfigurableBlockchain for RpcBlockchain {
             capabilities,
             wallet_name,
             satoshi_address,
-            skip_blocks: config.skip_blocks.clone(),
+            skip_blocks: config.skip_blocks,
         })
     }
 }
