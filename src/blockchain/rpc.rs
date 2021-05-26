@@ -420,7 +420,7 @@ mod test {
         let wallet_name = wallet_name_from_descriptor(desc, None, network, &secp).unwrap();
 
         let config = RpcConfig {
-            url: bitcoind.url.clone(),
+            url: bitcoind.rpc_url(),
             auth: Auth::CookieFile(bitcoind.cookie_file.clone()),
             network,
             wallet_name,
@@ -472,7 +472,7 @@ mod test {
         // test skip_blocks
         generate(&bitcoind, 5);
         let config = RpcConfig {
-            url: bitcoind.url.clone(),
+            url: bitcoind.rpc_url(),
             auth: Auth::CookieFile(bitcoind.cookie_file.clone()),
             network: Network::Regtest,
             wallet_name: "another-name".to_string(),
