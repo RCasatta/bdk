@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Wallet
 - Added an option that must be explicitly enabled to allow signing using non-`SIGHASH_ALL` sighashes (#350)
+- Bitcoin core RPC added as blockchain backend
 
 ## [v0.7.0] - [v0.6.0]
 
