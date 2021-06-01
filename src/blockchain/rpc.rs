@@ -41,9 +41,9 @@ use bitcoincore_rpc::json::{
 use bitcoincore_rpc::jsonrpc::serde_json::Value;
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use log::debug;
-use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
+use serde::{Serialize, Deserialize};
 
 /// The main struct for RPC backend implementing the [crate::blockchain::Blockchain] trait
 #[derive(Debug)]
@@ -62,7 +62,7 @@ pub struct RpcBlockchain {
 }
 
 /// RpcBlockchain configuration options
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct RpcConfig {
     /// The bitcoin node url
     pub url: String,
