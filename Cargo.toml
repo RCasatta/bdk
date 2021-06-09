@@ -59,7 +59,6 @@ keys-bip39 = ["tiny-bip39"]
 
 # Debug/Test features
 test-blockchains = ["bitcoincore-rpc", "electrum-client"]
-test-md-docs = ["electrum"]
 
 [dev-dependencies]
 lazy_static = "1.4"

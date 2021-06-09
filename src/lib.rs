@@ -244,7 +244,6 @@ pub(crate) mod error;
 pub mod blockchain;
 pub mod database;
 pub mod descriptor;
-#[cfg(feature = "test-md-docs")]
 mod doctest;
 pub mod keys;
 pub(crate) mod psbt;

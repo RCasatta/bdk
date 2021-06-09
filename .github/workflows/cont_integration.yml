@@ -71,7 +71,7 @@ jobs:
       - name: Update toolchain
         run: rustup update
       - name: Test
-        run: cargo test --features test-md-docs --no-default-features -- doctest::ReadmeDoctests
+        run: cargo test --features electrum --no-default-features -- doctest::ReadmeDoctests
 
   test-blockchains:
     name: Test ${{ matrix.blockchain.name }}
