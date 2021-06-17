@@ -343,7 +343,6 @@ macro_rules! bdk_blockchain_tests {
             use $crate::types::KeychainKind;
             use $crate::{Wallet, FeeRate};
             use $crate::testutils;
-            use $crate::serial_test::serial;
 
             use super::*;
 
@@ -375,7 +374,6 @@ macro_rules! bdk_blockchain_tests {
             }
 
             #[test]
-            #[serial]
             fn test_sync_simple() {
                 let (wallet, descriptors, mut test_client) = init_single_sig();
 
@@ -398,7 +396,6 @@ macro_rules! bdk_blockchain_tests {
             }
 
             #[test]
-            #[serial]
             fn test_sync_stop_gap_20() {
                 let (wallet, descriptors, mut test_client) = init_single_sig();
 
@@ -416,7 +413,6 @@ macro_rules! bdk_blockchain_tests {
             }
 
             #[test]
-            #[serial]
             fn test_sync_before_and_after_receive() {
                 let (wallet, descriptors, mut test_client) = init_single_sig();
 
@@ -434,7 +430,6 @@ macro_rules! bdk_blockchain_tests {
             }
 
             #[test]
-            #[serial]
             fn test_sync_multiple_outputs_same_tx() {
                 let (wallet, descriptors, mut test_client) = init_single_sig();
 
@@ -456,7 +451,6 @@ macro_rules! bdk_blockchain_tests {
             }
 
             #[test]
-            #[serial]
             fn test_sync_receive_multi() {
                 let (wallet, descriptors, mut test_client) = init_single_sig();
 
@@ -475,7 +469,6 @@ macro_rules! bdk_blockchain_tests {
             }
 
             #[test]
-            #[serial]
             fn test_sync_address_reuse() {
                 let (wallet, descriptors, mut test_client) = init_single_sig();
 
@@ -495,7 +488,6 @@ macro_rules! bdk_blockchain_tests {
             }
 
             #[test]
-            #[serial]
             fn test_sync_receive_rbf_replaced() {
                 let (wallet, descriptors, mut test_client) = init_single_sig();
 
@@ -534,7 +526,6 @@ macro_rules! bdk_blockchain_tests {
             // doesn't work for some reason.
             #[cfg(not(feature = "esplora"))]
             #[test]
-            #[serial]
             fn test_sync_reorg_block() {
                 let (wallet, descriptors, mut test_client) = init_single_sig();
 
@@ -565,7 +556,6 @@ macro_rules! bdk_blockchain_tests {
             }
 
             #[test]
-            #[serial]
             fn test_sync_after_send() {
                 let (wallet, descriptors, mut test_client) = init_single_sig();
                 println!("{}", descriptors.0);
@@ -594,7 +584,6 @@ macro_rules! bdk_blockchain_tests {
             }
 
             #[test]
-            #[serial]
             fn test_sync_outgoing_from_scratch() {
                 let (wallet, descriptors, mut test_client) = init_single_sig();
                 let node_addr = test_client.get_node_address(None);
@@ -636,7 +625,6 @@ macro_rules! bdk_blockchain_tests {
             }
 
             #[test]
-            #[serial]
             fn test_sync_long_change_chain() {
                 let (wallet, descriptors, mut test_client) = init_single_sig();
                 let node_addr = test_client.get_node_address(None);
@@ -678,7 +666,6 @@ macro_rules! bdk_blockchain_tests {
             }
 
             #[test]
-            #[serial]
             fn test_sync_bump_fee_basic() {
                 let (wallet, descriptors, mut test_client) = init_single_sig();
                 let node_addr = test_client.get_node_address(None);
@@ -714,7 +701,6 @@ macro_rules! bdk_blockchain_tests {
             }
 
             #[test]
-            #[serial]
             fn test_sync_bump_fee_remove_change() {
                 let (wallet, descriptors, mut test_client) = init_single_sig();
                 let node_addr = test_client.get_node_address(None);
@@ -750,7 +736,6 @@ macro_rules! bdk_blockchain_tests {
             }
 
             #[test]
-            #[serial]
             fn test_sync_bump_fee_add_input() {
                 let (wallet, descriptors, mut test_client) = init_single_sig();
                 let node_addr = test_client.get_node_address(None);
@@ -784,7 +769,6 @@ macro_rules! bdk_blockchain_tests {
             }
 
             #[test]
-            #[serial]
             fn test_sync_bump_fee_add_input_no_change() {
                 let (wallet, descriptors, mut test_client) = init_single_sig();
                 let node_addr = test_client.get_node_address(None);
@@ -821,7 +805,6 @@ macro_rules! bdk_blockchain_tests {
             }
 
             #[test]
-            #[serial]
             fn test_sync_receive_coinbase() {
                 let (wallet, _, mut test_client) = init_single_sig();
 
