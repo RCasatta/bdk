@@ -5,7 +5,7 @@ use bitcoin::hashes::sha256d;
 use bitcoin::{Address, Amount, Script, Transaction, Txid};
 pub use bitcoincore_rpc::bitcoincore_rpc_json::AddressType;
 pub use bitcoincore_rpc::{Auth, Client as RpcClient, RpcApi};
-use bitcoind::BitcoinD;
+use electrsd::bitcoind::BitcoinD;
 use core::str::FromStr;
 use electrsd::ElectrsD;
 pub use electrum_client::{Client as ElectrumClient, ElectrumApi};
