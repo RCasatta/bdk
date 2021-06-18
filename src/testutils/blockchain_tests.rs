@@ -25,7 +25,13 @@ impl TestClient {
     pub fn new(bitcoind_exe: String, electrs_exe: String) -> Self {
         debug!("launching {} and {}", &bitcoind_exe, &electrs_exe);
         let bitcoind = BitcoinD::new(bitcoind_exe).unwrap();
-        let electrsd = ElectrsD::new(electrs_exe, &bitcoind, false, false).unwrap(); // TODO http_enabled should be true only for esplora
+
+        #[cfg(feature = "test-esplora")]
+        let http_enabled = true;
+        #[cfg(not(feature = "test-esplora"))]
+        let http_enabled = false;
+
+        let electrsd = ElectrsD::new(electrs_exe, &bitcoind, false, http_enabled).unwrap(); // TODO http_enabled should be true only for esplora
 
         let node_address = bitcoind.client.get_new_address(None, None).unwrap();
         bitcoind
