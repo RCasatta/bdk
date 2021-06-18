@@ -37,10 +37,10 @@ jobs:
           override: true
       - name: Download electrs
         run: wget ${{ env.ELECTRS_RELEASE_URL }}/${{ env.ELECTRS_VER }} && unzip ${{ env.ELECTRS_VER }} && chmod +x ./electrs
-        if: ${{ matrix.blockchain.name }} != "esplora"
+        if: ${{ matrix.blockchain.name != "esplora" }}
       - name: Download electrs esplora
         run: wget ${{ env.ELECTRS_RELEASE_URL }}/${{ env.ELECTRS_ESPLORA_VER }} && unzip ${{ env.ELECTRS_ESPLORA_VER }} && chmod +x ./electrs
-        if: ${{ matrix.blockchain.name }} == "esplora"
+        if: ${{ matrix.blockchain.name == "esplora" }}
       - name: Set ELECTRS_EXE env
         run: echo "ELECTRS_EXE=${{ github.workspace }}/electrs" >> $GITHUB_ENV
       - name: Show electrs options
