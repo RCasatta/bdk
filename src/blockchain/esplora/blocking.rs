@@ -72,26 +72,27 @@ impl Blockchain for EsploraBlockchain {
     }
 
     fn estimate_fee(&self, target: usize) -> Result<FeeRate, Error> {
-        let estimates = self.url_client.get_fee_estimates()?;
+        let estimates = retry_fee_estimates_with_429(&self.url_client)?;
+
         Ok(FeeRate::from_sat_per_vb(convert_fee_rate(
             target, estimates,
         )?))
     }
 }
 
-impl Deref for EsploraBlockchain {
-    type Target = BlockingClient;
+// impl Deref for EsploraBlockchain {
+//     type Target = BlockingClient;
 
-    fn deref(&self) -> &Self::Target {
-        &self.url_client
-    }
-}
+//     fn deref(&self) -> &Self::Target {
+//         &self.url_client
+//     }
+// }
 
 impl StatelessBlockchain for EsploraBlockchain {}
 
 impl GetHeight for EsploraBlockchain {
     fn get_height(&self) -> Result<u32, Error> {
-        Ok(self.url_client.get_height()?)
+        retry_height_with_429(&self.url_client)
     }
 }
 
@@ -275,6 +276,54 @@ fn retry_block_hash_with_429(client: &BlockingClient, height: u32) -> Result<Blo
     let mut attempts = 0;
     loop {
         match client.get_block_hash(height) {
+            Ok(val) => return Ok(val),
+            Err(e) => {
+                if attempts > 6 {
+                    return Err(e.into());
+                }
+                if let esplora_client::Error::HttpResponse(status) = e {
+                    if status == 429 {
+                        let wait_for = 1 << attempts;
+                        log::warn!("Hit 429, waiting for {wait_for}s");
+                        attempts += 1;
+                        std::thread::sleep(std::time::Duration::from_secs(wait_for))
+                    }
+                } else {
+                    return Err(e.into());
+                }
+            }
+        }
+    }
+}
+
+fn retry_height_with_429(client: &BlockingClient) -> Result<u32, Error> {
+    let mut attempts = 0;
+    loop {
+        match client.get_height() {
+            Ok(val) => return Ok(val),
+            Err(e) => {
+                if attempts > 6 {
+                    return Err(e.into());
+                }
+                if let esplora_client::Error::HttpResponse(status) = e {
+                    if status == 429 {
+                        let wait_for = 1 << attempts;
+                        log::warn!("Hit 429, waiting for {wait_for}s");
+                        attempts += 1;
+                        std::thread::sleep(std::time::Duration::from_secs(wait_for))
+                    }
+                } else {
+                    return Err(e.into());
+                }
+            }
+        }
+    }
+}
+
+fn retry_fee_estimates_with_429(client: &BlockingClient) -> Result<HashMap<String, f64>, Error> {
+    let mut attempts = 0;
+    loop {
+        match client.get_fee_estimates() {
             Ok(val) => return Ok(val),
             Err(e) => {
                 if attempts > 6 {
