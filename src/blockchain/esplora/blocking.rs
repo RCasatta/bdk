@@ -80,13 +80,13 @@ impl Blockchain for EsploraBlockchain {
     }
 }
 
-// impl Deref for EsploraBlockchain {
-//     type Target = BlockingClient;
+impl Deref for EsploraBlockchain {
+    type Target = BlockingClient;
 
-//     fn deref(&self) -> &Self::Target {
-//         &self.url_client
-//     }
-// }
+    fn deref(&self) -> &Self::Target {
+        &self.url_client
+    }
+}
 
 impl StatelessBlockchain for EsploraBlockchain {}
 
