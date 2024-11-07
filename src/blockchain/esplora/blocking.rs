@@ -72,7 +72,7 @@ impl Blockchain for EsploraBlockchain {
     }
 
     fn estimate_fee(&self, target: usize) -> Result<FeeRate, Error> {
-        let estimates = retry_fee_estimates_with_429(&self.url_client)?;
+        let estimates = retry_get_fee_estimates(&self.url_client)?;
 
         Ok(FeeRate::from_sat_per_vb(convert_fee_rate(
             target, estimates,
@@ -92,19 +92,19 @@ impl StatelessBlockchain for EsploraBlockchain {}
 
 impl GetHeight for EsploraBlockchain {
     fn get_height(&self) -> Result<u32, Error> {
-        retry_height_with_429(&self.url_client)
+        retry_get_height(&self.url_client)
     }
 }
 
 impl GetTx for EsploraBlockchain {
     fn get_tx(&self, txid: &Txid) -> Result<Option<Transaction>, Error> {
-        retry_tx_with_429(&self.url_client, txid)
+        retry_get_tx(&self.url_client, txid)
     }
 }
 
 impl GetBlockHash for EsploraBlockchain {
     fn get_block_hash(&self, height: u64) -> Result<BlockHash, Error> {
-        retry_block_hash_with_429(&self.url_client, height as u32)
+        retry_get_block_hash(&self.url_client, height as u32)
     }
 }
 
@@ -128,7 +128,7 @@ impl WalletSync for EsploraBlockchain {
                     for script in scripts {
                         // make each request in its own thread.
                         let mut related_txs: Vec<Tx> =
-                            retry_script_with_429(&self.url_client, &script, None)?;
+                            retry_scripthash_txs(&self.url_client, &script, None)?;
 
                         let n_confirmed =
                             related_txs.iter().filter(|tx| tx.status.confirmed).count();
@@ -136,7 +136,7 @@ impl WalletSync for EsploraBlockchain {
                         // keep requesting to see if there's more.
                         if n_confirmed >= 25 {
                             loop {
-                                let new_related_txs: Vec<Tx> = retry_script_with_429(
+                                let new_related_txs: Vec<Tx> = retry_scripthash_txs(
                                     &self.url_client,
                                     &script,
                                     Some(related_txs.last().unwrap().txid),
@@ -220,7 +220,7 @@ impl ConfigurableBlockchain for EsploraBlockchain {
     }
 }
 
-fn retry_script_with_429(
+fn retry_scripthash_txs(
     client: &BlockingClient,
     script: &Script,
     page: Option<Txid>,
@@ -231,19 +231,14 @@ fn retry_script_with_429(
             Ok(val) => return Ok(val),
             Err(e) => {
                 if attempts > 6 {
-                    log::error!("retry_script_with_429 tried 6 times without success, erroring");
+                    log::error!("retry_scripthash_txs tried 6 times without success, erroring");
                     return Err(e.into());
                 }
                 if let esplora_client::Error::HttpResponse(status) = e {
-                    if status == 429 {
-                        let wait_for = 1 << attempts;
-                        log::info!("retry_script_with_429 Hit 429, waiting for {wait_for}s");
-                        attempts += 1;
-                        std::thread::sleep(std::time::Duration::from_secs(wait_for))
-                    } else {
-                        log::warn!("retry_script_with_429 returned {status}");
-                        return Err(e.into());
-                    }
+                    let wait_for = 1 << attempts;
+                    log::info!("retry_scripthash_txs Hit {status}, waiting for {wait_for}s");
+                    attempts += 1;
+                    std::thread::sleep(std::time::Duration::from_secs(wait_for))
                 } else {
                     return Err(e.into());
                 }
@@ -252,26 +247,21 @@ fn retry_script_with_429(
     }
 }
 
-fn retry_tx_with_429(client: &BlockingClient, txid: &Txid) -> Result<Option<Transaction>, Error> {
+fn retry_get_tx(client: &BlockingClient, txid: &Txid) -> Result<Option<Transaction>, Error> {
     let mut attempts = 0;
     loop {
         match client.get_tx(txid) {
             Ok(val) => return Ok(val),
             Err(e) => {
                 if attempts > 6 {
-                    log::error!("retry_tx_with_429 tried 6 times without success, erroring");
+                    log::error!("retry_get_tx tried 6 times without success, erroring");
                     return Err(e.into());
                 }
                 if let esplora_client::Error::HttpResponse(status) = e {
-                    if status == 429 {
-                        let wait_for = 1 << attempts;
-                        log::info!("retry_tx_with_429 Hit 429, waiting for {wait_for}s");
-                        attempts += 1;
-                        std::thread::sleep(std::time::Duration::from_secs(wait_for))
-                    } else {
-                        log::warn!("retry_tx_with_429 returned {status}");
-                        return Err(e.into());
-                    }
+                    let wait_for = 1 << attempts;
+                    log::info!("retry_get_tx Hit {status}, waiting for {wait_for}s");
+                    attempts += 1;
+                    std::thread::sleep(std::time::Duration::from_secs(wait_for))
                 } else {
                     return Err(e.into());
                 }
@@ -280,28 +270,21 @@ fn retry_tx_with_429(client: &BlockingClient, txid: &Txid) -> Result<Option<Tran
     }
 }
 
-fn retry_block_hash_with_429(client: &BlockingClient, height: u32) -> Result<BlockHash, Error> {
+fn retry_get_block_hash(client: &BlockingClient, height: u32) -> Result<BlockHash, Error> {
     let mut attempts = 0;
     loop {
         match client.get_block_hash(height) {
             Ok(val) => return Ok(val),
             Err(e) => {
                 if attempts > 6 {
-                    log::error!(
-                        "retry_block_hash_with_429 tried 6 times without success, erroring"
-                    );
+                    log::error!("retry_get_block_hash tried 6 times without success, erroring");
                     return Err(e.into());
                 }
                 if let esplora_client::Error::HttpResponse(status) = e {
-                    if status == 429 {
-                        let wait_for = 1 << attempts;
-                        log::info!("retry_block_hash_with_429 Hit 429, waiting for {wait_for}s");
-                        attempts += 1;
-                        std::thread::sleep(std::time::Duration::from_secs(wait_for))
-                    } else {
-                        log::warn!("retry_block_hash_with_429 returned {status}");
-                        return Err(e.into());
-                    }
+                    let wait_for = 1 << attempts;
+                    log::info!("retry_get_block_hash Hit {status}, waiting for {wait_for}s");
+                    attempts += 1;
+                    std::thread::sleep(std::time::Duration::from_secs(wait_for))
                 } else {
                     return Err(e.into());
                 }
@@ -310,26 +293,21 @@ fn retry_block_hash_with_429(client: &BlockingClient, height: u32) -> Result<Blo
     }
 }
 
-fn retry_height_with_429(client: &BlockingClient) -> Result<u32, Error> {
+fn retry_get_height(client: &BlockingClient) -> Result<u32, Error> {
     let mut attempts = 0;
     loop {
         match client.get_height() {
             Ok(val) => return Ok(val),
             Err(e) => {
                 if attempts > 6 {
-                    log::error!("retry_height_with_429 tried 6 times without success, erroring");
+                    log::error!("retry_get_height tried 6 times without success, erroring");
                     return Err(e.into());
                 }
                 if let esplora_client::Error::HttpResponse(status) = e {
-                    if status == 429 {
-                        let wait_for = 1 << attempts;
-                        log::info!("retry_height_with_429 Hit 429, waiting for {wait_for}s");
-                        attempts += 1;
-                        std::thread::sleep(std::time::Duration::from_secs(wait_for))
-                    } else {
-                        log::warn!("retry_height_with_429 returned {status}");
-                        return Err(e.into());
-                    }
+                    let wait_for = 1 << attempts;
+                    log::info!("retry_get_height Hit {status}, waiting for {wait_for}s");
+                    attempts += 1;
+                    std::thread::sleep(std::time::Duration::from_secs(wait_for))
                 } else {
                     return Err(e.into());
                 }
@@ -338,28 +316,21 @@ fn retry_height_with_429(client: &BlockingClient) -> Result<u32, Error> {
     }
 }
 
-fn retry_fee_estimates_with_429(client: &BlockingClient) -> Result<HashMap<String, f64>, Error> {
+fn retry_get_fee_estimates(client: &BlockingClient) -> Result<HashMap<String, f64>, Error> {
     let mut attempts = 0;
     loop {
         match client.get_fee_estimates() {
             Ok(val) => return Ok(val),
             Err(e) => {
                 if attempts > 6 {
-                    log::error!(
-                        "retry_fee_estimates_with_429 tried 6 times without success, erroring"
-                    );
+                    log::error!("retry_get_fee_estimates tried 6 times without success, erroring");
                     return Err(e.into());
                 }
                 if let esplora_client::Error::HttpResponse(status) = e {
-                    if status == 429 {
-                        let wait_for = 1 << attempts;
-                        log::info!("retry_fee_estimates_with_429 Hit 429, waiting for {wait_for}s");
-                        attempts += 1;
-                        std::thread::sleep(std::time::Duration::from_secs(wait_for))
-                    } else {
-                        log::warn!("retry_fee_estimates_with_429 returned {status}");
-                        return Err(e.into());
-                    }
+                    let wait_for = 1 << attempts;
+                    log::info!("retry_get_fee_estimates Hit 429, waiting for {wait_for}s");
+                    attempts += 1;
+                    std::thread::sleep(std::time::Duration::from_secs(wait_for))
                 } else {
                     return Err(e.into());
                 }
